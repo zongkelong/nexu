@@ -110,9 +110,7 @@ export function registerSlackEvents(app: OpenAPIHono<AppBindings>) {
         );
 
       if (!route) {
-        console.warn(
-          `[slack-events] No webhook route for team_id=${teamId}`,
-        );
+        console.warn(`[slack-events] No webhook route for team_id=${teamId}`);
         return c.json({ error: "Unknown workspace" }, 404);
       }
 
@@ -145,9 +143,7 @@ export function registerSlackEvents(app: OpenAPIHono<AppBindings>) {
         return c.json({ error: "Missing Slack signature headers" }, 401);
       }
 
-      if (
-        !verifySlackSignature(signingSecret, timestamp, rawBody, signature)
-      ) {
+      if (!verifySlackSignature(signingSecret, timestamp, rawBody, signature)) {
         console.warn(
           `[slack-events] Signature mismatch: ts=${timestamp} sig=${signature.slice(0, 20)}...`,
         );
@@ -207,7 +203,10 @@ export function registerSlackEvents(app: OpenAPIHono<AppBindings>) {
                   );
                   const userData = (await userResp.json()) as {
                     ok: boolean;
-                    user?: { real_name?: string; profile?: { display_name?: string } };
+                    user?: {
+                      real_name?: string;
+                      profile?: { display_name?: string };
+                    };
                   };
                   if (userData.ok && userData.user) {
                     channelName =
@@ -225,9 +224,8 @@ export function registerSlackEvents(app: OpenAPIHono<AppBindings>) {
           }
         }
 
-        const title = channelName === channelId
-          ? `Slack #${channelId}`
-          : `#${channelName}`;
+        const title =
+          channelName === channelId ? `Slack #${channelId}` : `#${channelName}`;
 
         db.insert(sessions)
           .values({
@@ -253,7 +251,9 @@ export function registerSlackEvents(app: OpenAPIHono<AppBindings>) {
             },
           })
           .then(() =>
-            console.log(`[slack-events] session upserted: ${sessionKey} title="${title}"`),
+            console.log(
+              `[slack-events] session upserted: ${sessionKey} title="${title}"`,
+            ),
           )
           .catch((err) =>
             console.error("[slack-events] session upsert failed:", err),
@@ -269,19 +269,10 @@ export function registerSlackEvents(app: OpenAPIHono<AppBindings>) {
 
       // Forward to gateway or log locally
       if (!podIp) {
-        const eventType =
-          (payload.event as Record<string, unknown> | undefined)?.type ??
-          "unknown";
-        console.log(
-          `[slack-events] team=${teamId} event=${eventType} (no gateway pod — logged only)`,
+        console.warn(
+          `[slack-events] no active gateway pod for team_id=${teamId} pool_id=${route.poolId}`,
         );
-        if (payload.event) {
-          console.log(
-            "[slack-events] payload:",
-            JSON.stringify(payload.event, null, 2),
-          );
-        }
-        return c.json({ ok: true });
+        return c.json({ accepted: true }, 202);
       }
 
       // Forward to gateway pod
@@ -310,8 +301,12 @@ export function registerSlackEvents(app: OpenAPIHono<AppBindings>) {
           headers: { "Content-Type": "application/json" },
         });
       } catch (err) {
-        console.error("[slack-events] Failed to forward to gateway:", err);
-        return c.json({ ok: true });
+        console.error("[slack-events] Failed to forward to gateway", {
+          poolId: route.poolId,
+          accountId,
+          error: err instanceof Error ? err.message : "unknown_error",
+        });
+        return c.json({ accepted: true }, 202);
       }
     } catch (err) {
       console.error("[slack-events] Unhandled error:", err);

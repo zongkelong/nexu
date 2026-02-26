@@ -16,8 +16,9 @@ import {
   oauthStates,
   webhookRoutes,
 } from "../db/schema/index.js";
-import { encrypt } from "../lib/crypto.js";
 import { findOrCreateDefaultBot } from "../lib/bot-helpers.js";
+import { encrypt } from "../lib/crypto.js";
+import { publishPoolConfigSnapshot } from "../services/runtime/pool-config-service.js";
 
 import type { AppBindings } from "../types.js";
 
@@ -74,6 +75,25 @@ function formatChannel(
     createdAt: ch.createdAt,
     updatedAt: ch.updatedAt,
   };
+}
+
+async function publishSnapshotSafely(
+  poolId: string | null | undefined,
+  botId: string,
+): Promise<void> {
+  if (!poolId) {
+    return;
+  }
+
+  try {
+    await publishPoolConfigSnapshot(db, poolId);
+  } catch (error) {
+    console.error("[channels] failed to publish pool config snapshot", {
+      poolId,
+      botId,
+      error: error instanceof Error ? error.message : "unknown_error",
+    });
+  }
 }
 
 /** Build the fixed redirect URI used in both the authorize URL and the token exchange. */
@@ -311,9 +331,14 @@ export function registerChannelRoutes(app: OpenAPIHono<AppBindings>) {
         externalId: input.teamId,
         poolId: bot.poolId,
         botChannelId: channelId,
+        botId,
+        accountId,
+        updatedAt: now,
         createdAt: now,
       });
     }
+
+    await publishSnapshotSafely(bot.poolId, bot.id);
 
     const [channel] = await db
       .select()
@@ -377,9 +402,7 @@ export function registerChannelRoutes(app: OpenAPIHono<AppBindings>) {
     const [channel] = await db
       .select()
       .from(botChannels)
-      .where(
-        and(eq(botChannels.id, channelId), eq(botChannels.botId, bot.id)),
-      );
+      .where(and(eq(botChannels.id, channelId), eq(botChannels.botId, bot.id)));
 
     if (!channel) {
       return c.json({ message: `Channel ${channelId} not found` }, 404);
@@ -394,6 +417,8 @@ export function registerChannelRoutes(app: OpenAPIHono<AppBindings>) {
       .where(eq(channelCredentials.botChannelId, channelId));
 
     await db.delete(botChannels).where(eq(botChannels.id, channelId));
+
+    await publishSnapshotSafely(bot.poolId, bot.id);
 
     return c.json({ success: true }, 200);
   });
@@ -421,9 +446,7 @@ export function registerChannelRoutes(app: OpenAPIHono<AppBindings>) {
     const [channel] = await db
       .select()
       .from(botChannels)
-      .where(
-        and(eq(botChannels.id, channelId), eq(botChannels.botId, bot.id)),
-      );
+      .where(and(eq(botChannels.id, channelId), eq(botChannels.botId, bot.id)));
 
     if (!channel) {
       return c.json({ message: `Channel ${channelId} not found` }, 404);
@@ -592,6 +615,18 @@ export function registerSlackOAuthCallback(app: OpenAPIHono<AppBindings>) {
           createdAt: now,
         },
       ]);
+
+      if (bot.poolId) {
+        await db
+          .update(webhookRoutes)
+          .set({
+            poolId: bot.poolId,
+            accountId,
+            botId,
+            updatedAt: now,
+          })
+          .where(eq(webhookRoutes.botChannelId, channelId));
+      }
     } else {
       // New connection — check global uniqueness first
       const [globalExisting] = await db
@@ -640,15 +675,22 @@ export function registerSlackOAuthCallback(app: OpenAPIHono<AppBindings>) {
         },
       ]);
 
-      await db.insert(webhookRoutes).values({
-        id: createId(),
-        channelType: "slack",
-        externalId: teamId,
-        poolId: bot.poolId ?? "unassigned",
-        botChannelId: channelId,
-        createdAt: now,
-      });
+      if (bot.poolId) {
+        await db.insert(webhookRoutes).values({
+          id: createId(),
+          channelType: "slack",
+          externalId: teamId,
+          poolId: bot.poolId,
+          botChannelId: channelId,
+          botId,
+          accountId,
+          updatedAt: now,
+          createdAt: now,
+        });
+      }
     }
+
+    await publishSnapshotSafely(bot.poolId, botId);
 
     // --- 7. Cleanup expired states (opportunistic) ---
     await db.delete(oauthStates).where(lt(oauthStates.expiresAt, now));

@@ -1,0 +1,202 @@
+import { sendHeartbeat } from "./api";
+import { pollLatestConfig } from "./config";
+import { env } from "./env";
+import { probeGatewayDeepHealth, probeGatewayLiveness } from "./gateway-health";
+import {
+  type GatewayHealthEvaluator,
+  type GatewayHealthEvaluatorConfig,
+  type GatewayStatusTransition,
+  createGatewayHealthEvaluator,
+  onDeepHealthFailure,
+  onDeepHealthSuccess,
+  onLivenessFailure,
+  onLivenessSuccess,
+} from "./health-state";
+import { log } from "./log";
+import {
+  type RuntimeState,
+  markGatewayProbeFailure,
+  markGatewayProbeSuccess,
+  setConfigSyncStatus,
+  setGatewayStatus,
+} from "./state";
+import { sleep } from "./utils";
+
+const gatewayHealthConfig: GatewayHealthEvaluatorConfig = {
+  failDegradedThreshold: env.RUNTIME_GATEWAY_FAIL_DEGRADED_THRESHOLD,
+  failUnhealthyThreshold: env.RUNTIME_GATEWAY_FAIL_UNHEALTHY_THRESHOLD,
+  recoverThreshold: env.RUNTIME_GATEWAY_RECOVER_THRESHOLD,
+  unhealthyWindowMs: env.RUNTIME_GATEWAY_UNHEALTHY_WINDOW_MS,
+  minStateHoldMs: env.RUNTIME_GATEWAY_MIN_STATE_HOLD_MS,
+};
+
+export async function runHeartbeatLoop(state: RuntimeState): Promise<never> {
+  for (;;) {
+    try {
+      await sendHeartbeat(state);
+    } catch (error) {
+      log("heartbeat failed", {
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
+    }
+
+    await sleep(env.RUNTIME_HEARTBEAT_INTERVAL_MS);
+  }
+}
+
+export async function runPollLoop(state: RuntimeState): Promise<never> {
+  let backoffMs = env.RUNTIME_POLL_INTERVAL_MS;
+
+  for (;;) {
+    try {
+      const changed = await pollLatestConfig(state);
+      backoffMs = env.RUNTIME_POLL_INTERVAL_MS;
+
+      const jitter = Math.floor(
+        Math.random() * (env.RUNTIME_POLL_JITTER_MS + 1),
+      );
+      await sleep(env.RUNTIME_POLL_INTERVAL_MS + jitter);
+
+      if (changed) {
+        await sendHeartbeat(state);
+      }
+    } catch (error) {
+      setConfigSyncStatus(state, "degraded");
+      log("config poll failed", {
+        error: error instanceof Error ? error.message : "unknown_error",
+        retryInMs: backoffMs,
+      });
+      await sleep(backoffMs);
+      backoffMs = Math.min(backoffMs * 2, env.RUNTIME_MAX_BACKOFF_MS);
+    }
+  }
+}
+
+function logProbeFailure(
+  evaluator: GatewayHealthEvaluator,
+  probeType: "liveness" | "deep",
+  errorCode: string,
+  latencyMs: number,
+  exitCode?: number,
+): void {
+  log("gateway probe failed", {
+    event: "gateway_probe",
+    probeType,
+    status: evaluator.status,
+    latencyMs,
+    errorCode,
+    exitCode,
+    consecutiveFailures:
+      probeType === "liveness"
+        ? evaluator.counters.consecutiveLivenessFailures
+        : evaluator.counters.consecutiveDeepFailures,
+    consecutiveSuccesses:
+      probeType === "liveness"
+        ? evaluator.counters.consecutiveLivenessSuccesses
+        : evaluator.counters.consecutiveDeepSuccesses,
+  });
+}
+
+function applyGatewayTransition(
+  state: RuntimeState,
+  transition: GatewayStatusTransition | null,
+): void {
+  if (!transition) {
+    return;
+  }
+
+  setGatewayStatus(state, transition.to);
+  log("gateway health state changed", {
+    event: "gateway_state_changed",
+    from: transition.from,
+    status: transition.to,
+    reason: transition.reason,
+  });
+}
+
+async function runGatewayLivenessLoop(
+  state: RuntimeState,
+  evaluator: GatewayHealthEvaluator,
+): Promise<never> {
+  for (;;) {
+    const nowMs = Date.now();
+    const result = await probeGatewayLiveness();
+
+    if (result.ok) {
+      markGatewayProbeSuccess(state, result.checkedAt);
+      const transition = onLivenessSuccess(
+        evaluator,
+        gatewayHealthConfig,
+        nowMs,
+      );
+      applyGatewayTransition(state, transition);
+    } else {
+      markGatewayProbeFailure(state, result.errorCode, result.checkedAt);
+      const transition = onLivenessFailure(
+        evaluator,
+        gatewayHealthConfig,
+        nowMs,
+      );
+      applyGatewayTransition(state, transition);
+      logProbeFailure(
+        evaluator,
+        result.probeType,
+        result.errorCode,
+        result.latencyMs,
+        result.exitCode,
+      );
+    }
+
+    await sleep(env.RUNTIME_GATEWAY_LIVENESS_INTERVAL_MS);
+  }
+}
+
+async function runGatewayDeepHealthLoop(
+  state: RuntimeState,
+  evaluator: GatewayHealthEvaluator,
+): Promise<never> {
+  for (;;) {
+    const nowMs = Date.now();
+    const result = await probeGatewayDeepHealth();
+
+    if (result.ok) {
+      markGatewayProbeSuccess(state, result.checkedAt);
+      const transition = onDeepHealthSuccess(
+        evaluator,
+        gatewayHealthConfig,
+        nowMs,
+      );
+      applyGatewayTransition(state, transition);
+    } else {
+      markGatewayProbeFailure(state, result.errorCode, result.checkedAt);
+      const transition = onDeepHealthFailure(
+        evaluator,
+        gatewayHealthConfig,
+        nowMs,
+      );
+      applyGatewayTransition(state, transition);
+      logProbeFailure(
+        evaluator,
+        result.probeType,
+        result.errorCode,
+        result.latencyMs,
+        result.exitCode,
+      );
+    }
+
+    await sleep(env.RUNTIME_GATEWAY_DEEP_INTERVAL_MS);
+  }
+}
+
+export function runGatewayHealthLoops(state: RuntimeState): void {
+  if (!env.RUNTIME_GATEWAY_PROBE_ENABLED) {
+    log("gateway runtime probes disabled", {
+      enabled: env.RUNTIME_GATEWAY_PROBE_ENABLED,
+    });
+    return;
+  }
+
+  const evaluator = createGatewayHealthEvaluator(Date.now());
+  void runGatewayLivenessLoop(state, evaluator);
+  void runGatewayDeepHealthLoop(state, evaluator);
+}

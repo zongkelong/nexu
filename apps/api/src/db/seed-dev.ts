@@ -19,11 +19,11 @@ export async function seedDev(dbUrl?: string) {
   const podIp = process.env.AUTO_SEED === "true" ? "gateway" : "127.0.0.1";
 
   try {
-    await client.query(`
-      INSERT INTO gateway_pools (id, pool_name, pool_type, max_bots, status, pod_ip, created_at)
-      VALUES ('pool_local_01', 'local-dev', 'shared', 50, 'active', $1, NOW()::text)
-      ON CONFLICT (pool_name) DO UPDATE SET pod_ip = $1, status = 'active'
-    `, [podIp]);
+    // await client.query(`
+    //   INSERT INTO gateway_pools (id, pool_name, pool_type, max_bots, status, pod_ip, created_at)
+    //   VALUES ('pool_local_01', 'local-dev', 'shared', 50, 'active', $1, NOW()::text)
+    //   ON CONFLICT (pool_name) DO UPDATE SET pod_ip = $1, status = 'active'
+    // `, [podIp]);
 
     // Invite code for registration
     await client.query(`
@@ -32,7 +32,9 @@ export async function seedDev(dbUrl?: string) {
       ON CONFLICT (code) DO NOTHING
     `);
 
-    console.log(`Dev seed completed (pool_local_01 [pod_ip=${podIp}] + invite code NEXU2026)`);
+    console.log(
+      `Dev seed completed (pool_local_01 [pod_ip=${podIp}] + invite code NEXU2026)`,
+    );
   } finally {
     await client.end();
   }

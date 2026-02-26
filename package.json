@@ -3,14 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --parallel -r dev",
+    "dev": "NODE_OPTIONS=--conditions=development pnpm --parallel -r dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "pnpm -r test",
     "generate-types": "pnpm --filter @nexu/api generate-openapi && pnpm --filter @nexu/web generate-sdk",
-    "seed": "pnpm --filter @nexu/api db:seed"
+    "seed": "pnpm --filter @nexu/api db:seed",
+    "db:push": "pnpm --filter @nexu/api db:push"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4"

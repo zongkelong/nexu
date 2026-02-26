@@ -4,5 +4,6 @@ export * from "./schemas/gateway.js";
 export * from "./schemas/invite.js";
 export * from "./schemas/model.js";
 export * from "./schemas/openclaw-config.js";
+export * from "./schemas/runtime-internal.js";
 export * from "./schemas/artifact.js";
 export * from "./schemas/session.js";

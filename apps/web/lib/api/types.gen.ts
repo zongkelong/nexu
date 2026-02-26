@@ -249,6 +249,7 @@ export type GetV1BotsResponses = {
             id: string;
             name: string;
             slug: string;
+            poolId: string;
             status: 'active' | 'paused' | 'deleted';
             modelId: string;
             systemPrompt: string;
@@ -266,6 +267,7 @@ export type PostV1BotsData = {
         slug: string;
         systemPrompt?: string;
         modelId?: string;
+        poolId?: string;
     };
     path?: never;
     query?: never;
@@ -273,6 +275,18 @@ export type PostV1BotsData = {
 };
 
 export type PostV1BotsErrors = {
+    /**
+     * Invalid pool state
+     */
+    400: {
+        message: string;
+    };
+    /**
+     * Pool not found
+     */
+    404: {
+        message: string;
+    };
     /**
      * Slug already exists
      */
@@ -291,6 +305,7 @@ export type PostV1BotsResponses = {
         id: string;
         name: string;
         slug: string;
+        poolId: string;
         status: 'active' | 'paused' | 'deleted';
         modelId: string;
         systemPrompt: string;
@@ -360,6 +375,7 @@ export type GetV1BotsByBotIdResponses = {
         id: string;
         name: string;
         slug: string;
+        poolId: string;
         status: 'active' | 'paused' | 'deleted';
         modelId: string;
         systemPrompt: string;
@@ -402,6 +418,7 @@ export type PatchV1BotsByBotIdResponses = {
         id: string;
         name: string;
         slug: string;
+        poolId: string;
         status: 'active' | 'paused' | 'deleted';
         modelId: string;
         systemPrompt: string;
@@ -440,6 +457,7 @@ export type PostV1BotsByBotIdPauseResponses = {
         id: string;
         name: string;
         slug: string;
+        poolId: string;
         status: 'active' | 'paused' | 'deleted';
         modelId: string;
         systemPrompt: string;
@@ -478,6 +496,7 @@ export type PostV1BotsByBotIdResumeResponses = {
         id: string;
         name: string;
         slug: string;
+        poolId: string;
         status: 'active' | 'paused' | 'deleted';
         modelId: string;
         systemPrompt: string;
@@ -825,19 +844,65 @@ export type GetApiInternalPoolsByPoolIdConfigResponses = {
 
 export type GetApiInternalPoolsByPoolIdConfigResponse = GetApiInternalPoolsByPoolIdConfigResponses[keyof GetApiInternalPoolsByPoolIdConfigResponses];
 
-export type PatchApiInternalPoolsByPoolIdData = {
+export type PostApiInternalPoolsRegisterData = {
     body?: {
-        podIp: string;
-        status: 'active' | 'draining' | 'inactive';
+        poolId: string;
+        podIp?: string;
+        status?: 'pending' | 'active' | 'degraded' | 'unhealthy' | 'draining' | 'terminated';
     };
+    path?: never;
+    query?: never;
+    url: '/api/internal/pools/register';
+};
+
+export type PostApiInternalPoolsRegisterResponses = {
+    /**
+     * Pool node registered
+     */
+    200: {
+        ok: boolean;
+        poolId: string;
+    };
+};
+
+export type PostApiInternalPoolsRegisterResponse = PostApiInternalPoolsRegisterResponses[keyof PostApiInternalPoolsRegisterResponses];
+
+export type PostApiInternalPoolsHeartbeatData = {
+    body?: {
+        poolId: string;
+        podIp?: string;
+        status?: 'pending' | 'active' | 'degraded' | 'unhealthy' | 'draining' | 'terminated';
+        lastSeenVersion?: number;
+        timestamp?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/internal/pools/heartbeat';
+};
+
+export type PostApiInternalPoolsHeartbeatResponses = {
+    /**
+     * Pool node heartbeat accepted
+     */
+    200: {
+        ok: boolean;
+        poolId: string;
+        status: 'pending' | 'active' | 'degraded' | 'unhealthy' | 'draining' | 'terminated';
+    };
+};
+
+export type PostApiInternalPoolsHeartbeatResponse = PostApiInternalPoolsHeartbeatResponses[keyof PostApiInternalPoolsHeartbeatResponses];
+
+export type GetApiInternalPoolsByPoolIdConfigLatestData = {
+    body?: never;
     path: {
         poolId: string;
     };
     query?: never;
-    url: '/api/internal/pools/{poolId}';
+    url: '/api/internal/pools/{poolId}/config/latest';
 };
 
-export type PatchApiInternalPoolsByPoolIdErrors = {
+export type GetApiInternalPoolsByPoolIdConfigLatestErrors = {
     /**
      * Pool not found
      */
@@ -846,18 +911,252 @@ export type PatchApiInternalPoolsByPoolIdErrors = {
     };
 };
 
-export type PatchApiInternalPoolsByPoolIdError = PatchApiInternalPoolsByPoolIdErrors[keyof PatchApiInternalPoolsByPoolIdErrors];
+export type GetApiInternalPoolsByPoolIdConfigLatestError = GetApiInternalPoolsByPoolIdConfigLatestErrors[keyof GetApiInternalPoolsByPoolIdConfigLatestErrors];
 
-export type PatchApiInternalPoolsByPoolIdResponses = {
+export type GetApiInternalPoolsByPoolIdConfigLatestResponses = {
     /**
-     * Pool updated
+     * Latest pool config snapshot
      */
     200: {
+        poolId: string;
+        version: number;
+        configHash: string;
+        config: {
+            gateway: {
+                port?: number;
+                mode?: 'local';
+                bind?: 'loopback' | 'lan' | 'auto';
+                auth: {
+                    mode: 'none' | 'token';
+                    token?: string;
+                };
+                reload?: {
+                    mode: 'off' | 'hot' | 'hybrid';
+                };
+                controlUi?: {
+                    allowedOrigins?: Array<string>;
+                    dangerouslyAllowHostHeaderOriginFallback?: boolean;
+                };
+            };
+            models?: {
+                mode?: 'merge' | 'replace';
+                providers: {
+                    [key: string]: {
+                        baseUrl: string;
+                        apiKey: string;
+                        api: string;
+                        models: Array<{
+                            id: string;
+                            name?: string;
+                            reasoning?: boolean;
+                            input?: Array<string>;
+                            cost?: {
+                                input: number;
+                                output: number;
+                                cacheRead?: number;
+                                cacheWrite?: number;
+                            };
+                            contextWindow?: number;
+                            maxTokens?: number;
+                            compat?: {
+                                supportsStore?: boolean;
+                            };
+                        }>;
+                    };
+                };
+            };
+            agents: {
+                defaults?: {
+                    model?: string | {
+                        primary: string;
+                    };
+                };
+                list: Array<{
+                    id: string;
+                    name?: string;
+                    default?: boolean;
+                    workspace?: string;
+                    model?: string | {
+                        primary: string;
+                        fallbacks?: Array<string>;
+                    };
+                }>;
+            };
+            channels: {
+                slack?: {
+                    mode?: 'socket' | 'http';
+                    signingSecret?: string;
+                    enabled?: boolean;
+                    groupPolicy?: 'open' | 'allowlist' | 'disabled';
+                    requireMention?: boolean;
+                    dmPolicy?: 'pairing' | 'allowlist' | 'open';
+                    allowFrom?: Array<string>;
+                    accounts: {
+                        [key: string]: {
+                            enabled?: boolean;
+                            botToken: string;
+                            signingSecret?: string;
+                            appToken?: string;
+                            mode?: 'socket' | 'http';
+                            webhookPath?: string;
+                            dmPolicy?: 'pairing' | 'allowlist' | 'open';
+                            groupPolicy?: 'open' | 'allowlist' | 'disabled';
+                        };
+                    };
+                };
+            };
+            bindings: Array<{
+                agentId: string;
+                match: {
+                    channel: string;
+                    accountId?: string;
+                };
+            }>;
+            commands?: {
+                native?: 'auto' | 'off';
+                nativeSkills?: 'auto' | 'off';
+                restart?: boolean;
+                ownerDisplay?: 'raw' | 'friendly';
+            };
+        };
+        createdAt: string;
+    };
+};
+
+export type GetApiInternalPoolsByPoolIdConfigLatestResponse = GetApiInternalPoolsByPoolIdConfigLatestResponses[keyof GetApiInternalPoolsByPoolIdConfigLatestResponses];
+
+export type GetApiInternalPoolsByPoolIdConfigVersionsByVersionData = {
+    body?: never;
+    path: {
+        poolId: string;
+        version?: number;
+    };
+    query?: never;
+    url: '/api/internal/pools/{poolId}/config/versions/{version}';
+};
+
+export type GetApiInternalPoolsByPoolIdConfigVersionsByVersionErrors = {
+    /**
+     * Config version not found
+     */
+    404: {
         message: string;
     };
 };
 
-export type PatchApiInternalPoolsByPoolIdResponse = PatchApiInternalPoolsByPoolIdResponses[keyof PatchApiInternalPoolsByPoolIdResponses];
+export type GetApiInternalPoolsByPoolIdConfigVersionsByVersionError = GetApiInternalPoolsByPoolIdConfigVersionsByVersionErrors[keyof GetApiInternalPoolsByPoolIdConfigVersionsByVersionErrors];
+
+export type GetApiInternalPoolsByPoolIdConfigVersionsByVersionResponses = {
+    /**
+     * Pool config snapshot by version
+     */
+    200: {
+        poolId: string;
+        version: number;
+        configHash: string;
+        config: {
+            gateway: {
+                port?: number;
+                mode?: 'local';
+                bind?: 'loopback' | 'lan' | 'auto';
+                auth: {
+                    mode: 'none' | 'token';
+                    token?: string;
+                };
+                reload?: {
+                    mode: 'off' | 'hot' | 'hybrid';
+                };
+                controlUi?: {
+                    allowedOrigins?: Array<string>;
+                    dangerouslyAllowHostHeaderOriginFallback?: boolean;
+                };
+            };
+            models?: {
+                mode?: 'merge' | 'replace';
+                providers: {
+                    [key: string]: {
+                        baseUrl: string;
+                        apiKey: string;
+                        api: string;
+                        models: Array<{
+                            id: string;
+                            name?: string;
+                            reasoning?: boolean;
+                            input?: Array<string>;
+                            cost?: {
+                                input: number;
+                                output: number;
+                                cacheRead?: number;
+                                cacheWrite?: number;
+                            };
+                            contextWindow?: number;
+                            maxTokens?: number;
+                            compat?: {
+                                supportsStore?: boolean;
+                            };
+                        }>;
+                    };
+                };
+            };
+            agents: {
+                defaults?: {
+                    model?: string | {
+                        primary: string;
+                    };
+                };
+                list: Array<{
+                    id: string;
+                    name?: string;
+                    default?: boolean;
+                    workspace?: string;
+                    model?: string | {
+                        primary: string;
+                        fallbacks?: Array<string>;
+                    };
+                }>;
+            };
+            channels: {
+                slack?: {
+                    mode?: 'socket' | 'http';
+                    signingSecret?: string;
+                    enabled?: boolean;
+                    groupPolicy?: 'open' | 'allowlist' | 'disabled';
+                    requireMention?: boolean;
+                    dmPolicy?: 'pairing' | 'allowlist' | 'open';
+                    allowFrom?: Array<string>;
+                    accounts: {
+                        [key: string]: {
+                            enabled?: boolean;
+                            botToken: string;
+                            signingSecret?: string;
+                            appToken?: string;
+                            mode?: 'socket' | 'http';
+                            webhookPath?: string;
+                            dmPolicy?: 'pairing' | 'allowlist' | 'open';
+                            groupPolicy?: 'open' | 'allowlist' | 'disabled';
+                        };
+                    };
+                };
+            };
+            bindings: Array<{
+                agentId: string;
+                match: {
+                    channel: string;
+                    accountId?: string;
+                };
+            }>;
+            commands?: {
+                native?: 'auto' | 'off';
+                nativeSkills?: 'auto' | 'off';
+                restart?: boolean;
+                ownerDisplay?: 'raw' | 'friendly';
+            };
+        };
+        createdAt: string;
+    };
+};
+
+export type GetApiInternalPoolsByPoolIdConfigVersionsByVersionResponse = GetApiInternalPoolsByPoolIdConfigVersionsByVersionResponses[keyof GetApiInternalPoolsByPoolIdConfigVersionsByVersionResponses];
 
 export type GetV1ArtifactsData = {
     body?: never;
