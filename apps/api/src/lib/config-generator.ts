@@ -228,6 +228,13 @@ export async function generatePoolConfig(
       },
       list: agentList,
     },
+    tools: {
+      exec: {
+        security: "full",
+        ask: "off",
+        host: "sandbox",
+      },
+    },
     channels: {},
     bindings: bindingsList,
   };
