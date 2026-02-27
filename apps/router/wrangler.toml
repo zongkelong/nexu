@@ -4,10 +4,10 @@ compatibility_date = "2025-01-01"
 
 [[services]]
 binding = "LANDING"
-service = "nexu-landing"
+service = "nexu-landing-worker"
 
 [[services]]
 binding = "APP"
-service = "nexu-app"
+service = "nexu-app-worker"
 
 # API_ORIGIN is configured via Cloudflare Dashboard → Worker → Settings → Variables
