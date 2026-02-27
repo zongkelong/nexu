@@ -198,7 +198,9 @@ export async function generatePoolConfig(
     ...new Set(activeBots.map((b) => b.modelId).filter(Boolean) as string[]),
   ];
   const defaultModelId = resolveModelId(
-    activeBots[0]?.modelId ?? process.env.DEFAULT_MODEL_ID ?? "anthropic/claude-sonnet-4",
+    activeBots[0]?.modelId ??
+      process.env.DEFAULT_MODEL_ID ??
+      "anthropic/claude-sonnet-4",
   );
 
   const config: OpenClawConfig = {

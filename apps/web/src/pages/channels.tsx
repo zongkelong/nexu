@@ -27,7 +27,7 @@ import {
 export function ChannelsPage() {
   const queryClient = useQueryClient();
 
-  const { data: channelsData, isLoading: channelsLoading } = useQuery({
+  const { data: channelsData } = useQuery({
     queryKey: ["channels"],
     queryFn: async () => {
       const { data } = await getV1Channels();
@@ -352,9 +352,7 @@ function DiscordConnectedView({
           <div className="flex items-center gap-3">
             <Hash className="h-5 w-5" />
             <div>
-              <CardTitle>
-                {channel.teamName ?? channel.accountId}
-              </CardTitle>
+              <CardTitle>{channel.teamName ?? channel.accountId}</CardTitle>
               <CardDescription>{channel.accountId}</CardDescription>
             </div>
           </div>
