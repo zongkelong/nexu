@@ -9,7 +9,7 @@ export default {
     const url = new URL(request.url);
 
     // API reverse proxy
-    if (url.pathname.startsWith("/v1/") || url.pathname.startsWith("/api/")) {
+    if (url.pathname.startsWith("/api/")) {
       const target = new URL(url.pathname + url.search, env.API_ORIGIN);
       const headers = new Headers(request.headers);
       headers.set("Host", new URL(env.API_ORIGIN).host);

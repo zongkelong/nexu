@@ -25,11 +25,11 @@ import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import "@/lib/api";
 import {
-  deleteV1ChannelsByChannelId,
-  getV1Channels,
-  getV1ChannelsSlackOauthUrl,
-  postV1ChannelsDiscordConnect,
-  postV1ChannelsSlackConnect,
+  deleteApiV1ChannelsByChannelId,
+  getApiV1Channels,
+  getApiV1ChannelsSlackOauthUrl,
+  postApiV1ChannelsDiscordConnect,
+  postApiV1ChannelsSlackConnect,
 } from "../../lib/api/sdk.gen";
 
 type Platform = "slack" | "discord" | "whatsapp";
@@ -291,7 +291,7 @@ export function ChannelsPage() {
   const { data: channelsData } = useQuery({
     queryKey: ["channels"],
     queryFn: async () => {
-      const { data } = await getV1Channels();
+      const { data } = await getApiV1Channels();
       return data;
     },
   });
@@ -471,7 +471,7 @@ function SetupGuideView({
   // Discord connect
   const discordConnect = useMutation({
     mutationFn: async () => {
-      const { data, error } = await postV1ChannelsDiscordConnect({
+      const { data, error } = await postApiV1ChannelsDiscordConnect({
         body: { botToken: field2, appId: field1 },
       });
       if (error) throw new Error(error.message);
@@ -487,7 +487,7 @@ function SetupGuideView({
   // Slack manual connect
   const slackConnect = useMutation({
     mutationFn: async () => {
-      const { data, error } = await postV1ChannelsSlackConnect({
+      const { data, error } = await postApiV1ChannelsSlackConnect({
         body: {
           botToken: field1,
           signingSecret: field2,
@@ -506,7 +506,7 @@ function SetupGuideView({
   const handleSlackOAuth = async () => {
     setOauthLoading(true);
     try {
-      const { data, error } = await getV1ChannelsSlackOauthUrl();
+      const { data, error } = await getApiV1ChannelsSlackOauthUrl();
       if (error) {
         toast.error(error.message ?? "Failed to get Slack OAuth URL");
         return;
@@ -865,7 +865,7 @@ function ConfiguredView({
 
   const disconnectMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await deleteV1ChannelsByChannelId({
+      const { error } = await deleteApiV1ChannelsByChannelId({
         path: { channelId: channel.id },
       });
       if (error) throw new Error(error.message);

@@ -11,7 +11,7 @@ import type { AppBindings } from "../types.js";
 
 const completeOnboardingRoute = createRoute({
   method: "post",
-  path: "/v1/onboarding/complete",
+  path: "/api/v1/onboarding/complete",
   tags: ["Onboarding"],
   request: {
     body: {

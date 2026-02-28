@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import "@/lib/api";
-import { getV1Me } from "../../lib/api/sdk.gen";
+import { getApiV1Me } from "../../lib/api/sdk.gen";
 
 export function InviteGuardLayout() {
   const location = useLocation();
@@ -10,7 +10,7 @@ export function InviteGuardLayout() {
   const { data: profile, isLoading } = useQuery({
     queryKey: ["me"],
     queryFn: async () => {
-      const { data } = await getV1Me();
+      const { data } = await getApiV1Me();
       return data;
     },
   });

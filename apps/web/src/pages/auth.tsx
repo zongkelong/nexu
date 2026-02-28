@@ -218,17 +218,34 @@ export function AuthPage() {
           name: name || email.split("@")[0] || "User",
         });
         if (error) {
-          // If user already exists (unverified), resend OTP and show verification screen
           const msg = (error.message ?? "").toLowerCase();
           if (msg.includes("already") || msg.includes("exist")) {
-            await authClient.emailOtp.sendVerificationOtp({
-              email,
-              type: "email-verification",
+            // Check backend to determine verified vs unverified
+            const res = await fetch("/api/auth/check-email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email }),
             });
-            setPendingVerification(true);
-            setResendCooldown(RESEND_COOLDOWN);
+            const check = (await res.json()) as {
+              exists: boolean;
+              verified: boolean;
+            };
+            if (check.exists && !check.verified) {
+              // Unverified account — resend OTP
+              await authClient.emailOtp.sendVerificationOtp({
+                email,
+                type: "email-verification",
+              });
+              setPendingVerification(true);
+              setResendCooldown(RESEND_COOLDOWN);
+              setLoading(null);
+              toast.info("Verification code sent to your email");
+              return;
+            }
+            toast.error(
+              "This email is already registered. Please log in.",
+            );
             setLoading(null);
-            toast.info("Verification code sent to your email");
             return;
           }
           toast.error(error.message ?? "Sign up failed");

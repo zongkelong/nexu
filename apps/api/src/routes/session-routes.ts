@@ -339,7 +339,7 @@ export function registerSessionInternalRoutes(app: OpenAPIHono<AppBindings>) {
 
 const listSessionsRoute = createRoute({
   method: "get",
-  path: "/v1/sessions",
+  path: "/api/v1/sessions",
   tags: ["Sessions"],
   request: {
     query: z.object({
@@ -362,7 +362,7 @@ const listSessionsRoute = createRoute({
 
 const getSessionRoute = createRoute({
   method: "get",
-  path: "/v1/sessions/{id}",
+  path: "/api/v1/sessions/{id}",
   tags: ["Sessions"],
   request: {
     params: sessionIdParam,

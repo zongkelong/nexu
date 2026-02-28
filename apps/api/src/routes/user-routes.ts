@@ -8,7 +8,7 @@ import type { AppBindings } from "../types.js";
 
 const getMeRoute = createRoute({
   method: "get",
-  path: "/v1/me",
+  path: "/api/v1/me",
   tags: ["User"],
   responses: {
     200: {

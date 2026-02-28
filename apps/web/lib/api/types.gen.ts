@@ -233,14 +233,90 @@ export type PatchApiInternalSessionsByIdResponses = {
 
 export type PatchApiInternalSessionsByIdResponse = PatchApiInternalSessionsByIdResponses[keyof PatchApiInternalSessionsByIdResponses];
 
-export type GetV1MeData = {
+export type GetApiInternalSkillsLatestData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/v1/me';
+    url: '/api/internal/skills/latest';
 };
 
-export type GetV1MeResponses = {
+export type GetApiInternalSkillsLatestErrors = {
+    /**
+     * Unauthorized
+     */
+    401: {
+        message: string;
+    };
+};
+
+export type GetApiInternalSkillsLatestError = GetApiInternalSkillsLatestErrors[keyof GetApiInternalSkillsLatestErrors];
+
+export type GetApiInternalSkillsLatestResponses = {
+    /**
+     * Latest skills snapshot
+     */
+    200: {
+        version: number;
+        skillsHash: string;
+        skills: {
+            [key: string]: string;
+        };
+        createdAt: string;
+    };
+};
+
+export type GetApiInternalSkillsLatestResponse = GetApiInternalSkillsLatestResponses[keyof GetApiInternalSkillsLatestResponses];
+
+export type PutApiInternalSkillsByNameData = {
+    body?: {
+        content: string;
+        status?: 'active' | 'inactive';
+    };
+    path: {
+        name: string;
+    };
+    query?: never;
+    url: '/api/internal/skills/{name}';
+};
+
+export type PutApiInternalSkillsByNameErrors = {
+    /**
+     * Invalid name or body
+     */
+    400: {
+        message: string;
+    };
+    /**
+     * Unauthorized
+     */
+    401: {
+        message: string;
+    };
+};
+
+export type PutApiInternalSkillsByNameError = PutApiInternalSkillsByNameErrors[keyof PutApiInternalSkillsByNameErrors];
+
+export type PutApiInternalSkillsByNameResponses = {
+    /**
+     * Skill upserted
+     */
+    200: {
+        ok: boolean;
+        name: string;
+        version: number;
+    };
+};
+
+export type PutApiInternalSkillsByNameResponse = PutApiInternalSkillsByNameResponses[keyof PutApiInternalSkillsByNameResponses];
+
+export type GetApiV1MeData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/me';
+};
+
+export type GetApiV1MeResponses = {
     /**
      * Current user profile
      */
@@ -255,16 +331,43 @@ export type GetV1MeResponses = {
     };
 };
 
-export type GetV1MeResponse = GetV1MeResponses[keyof GetV1MeResponses];
+export type GetApiV1MeResponse = GetApiV1MeResponses[keyof GetApiV1MeResponses];
 
-export type GetV1BotsData = {
+export type PostApiV1OnboardingCompleteData = {
+    body?: {
+        role: string;
+        company?: string;
+        useCases: Array<string>;
+        referralSource: string;
+        referralDetail?: string;
+        channelVotes?: Array<string>;
+        selectedAvatar: string;
+        avatarVotes?: Array<string>;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/onboarding/complete';
+};
+
+export type PostApiV1OnboardingCompleteResponses = {
+    /**
+     * Onboarding completed
+     */
+    200: {
+        ok: boolean;
+    };
+};
+
+export type PostApiV1OnboardingCompleteResponse = PostApiV1OnboardingCompleteResponses[keyof PostApiV1OnboardingCompleteResponses];
+
+export type GetApiV1BotsData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/v1/bots';
+    url: '/api/v1/bots';
 };
 
-export type GetV1BotsResponses = {
+export type GetApiV1BotsResponses = {
     /**
      * Bot list
      */
@@ -283,9 +386,9 @@ export type GetV1BotsResponses = {
     };
 };
 
-export type GetV1BotsResponse = GetV1BotsResponses[keyof GetV1BotsResponses];
+export type GetApiV1BotsResponse = GetApiV1BotsResponses[keyof GetApiV1BotsResponses];
 
-export type PostV1BotsData = {
+export type PostApiV1BotsData = {
     body?: {
         name: string;
         slug: string;
@@ -295,10 +398,10 @@ export type PostV1BotsData = {
     };
     path?: never;
     query?: never;
-    url: '/v1/bots';
+    url: '/api/v1/bots';
 };
 
-export type PostV1BotsErrors = {
+export type PostApiV1BotsErrors = {
     /**
      * Invalid pool state
      */
@@ -319,9 +422,9 @@ export type PostV1BotsErrors = {
     };
 };
 
-export type PostV1BotsError = PostV1BotsErrors[keyof PostV1BotsErrors];
+export type PostApiV1BotsError = PostApiV1BotsErrors[keyof PostApiV1BotsErrors];
 
-export type PostV1BotsResponses = {
+export type PostApiV1BotsResponses = {
     /**
      * Bot created
      */
@@ -338,18 +441,18 @@ export type PostV1BotsResponses = {
     };
 };
 
-export type PostV1BotsResponse = PostV1BotsResponses[keyof PostV1BotsResponses];
+export type PostApiV1BotsResponse = PostApiV1BotsResponses[keyof PostApiV1BotsResponses];
 
-export type DeleteV1BotsByBotIdData = {
+export type DeleteApiV1BotsByBotIdData = {
     body?: never;
     path: {
         botId: string;
     };
     query?: never;
-    url: '/v1/bots/{botId}';
+    url: '/api/v1/bots/{botId}';
 };
 
-export type DeleteV1BotsByBotIdErrors = {
+export type DeleteApiV1BotsByBotIdErrors = {
     /**
      * Bot not found
      */
@@ -358,9 +461,9 @@ export type DeleteV1BotsByBotIdErrors = {
     };
 };
 
-export type DeleteV1BotsByBotIdError = DeleteV1BotsByBotIdErrors[keyof DeleteV1BotsByBotIdErrors];
+export type DeleteApiV1BotsByBotIdError = DeleteApiV1BotsByBotIdErrors[keyof DeleteApiV1BotsByBotIdErrors];
 
-export type DeleteV1BotsByBotIdResponses = {
+export type DeleteApiV1BotsByBotIdResponses = {
     /**
      * Bot deleted
      */
@@ -369,18 +472,18 @@ export type DeleteV1BotsByBotIdResponses = {
     };
 };
 
-export type DeleteV1BotsByBotIdResponse = DeleteV1BotsByBotIdResponses[keyof DeleteV1BotsByBotIdResponses];
+export type DeleteApiV1BotsByBotIdResponse = DeleteApiV1BotsByBotIdResponses[keyof DeleteApiV1BotsByBotIdResponses];
 
-export type GetV1BotsByBotIdData = {
+export type GetApiV1BotsByBotIdData = {
     body?: never;
     path: {
         botId: string;
     };
     query?: never;
-    url: '/v1/bots/{botId}';
+    url: '/api/v1/bots/{botId}';
 };
 
-export type GetV1BotsByBotIdErrors = {
+export type GetApiV1BotsByBotIdErrors = {
     /**
      * Bot not found
      */
@@ -389,9 +492,9 @@ export type GetV1BotsByBotIdErrors = {
     };
 };
 
-export type GetV1BotsByBotIdError = GetV1BotsByBotIdErrors[keyof GetV1BotsByBotIdErrors];
+export type GetApiV1BotsByBotIdError = GetApiV1BotsByBotIdErrors[keyof GetApiV1BotsByBotIdErrors];
 
-export type GetV1BotsByBotIdResponses = {
+export type GetApiV1BotsByBotIdResponses = {
     /**
      * Bot details
      */
@@ -408,9 +511,9 @@ export type GetV1BotsByBotIdResponses = {
     };
 };
 
-export type GetV1BotsByBotIdResponse = GetV1BotsByBotIdResponses[keyof GetV1BotsByBotIdResponses];
+export type GetApiV1BotsByBotIdResponse = GetApiV1BotsByBotIdResponses[keyof GetApiV1BotsByBotIdResponses];
 
-export type PatchV1BotsByBotIdData = {
+export type PatchApiV1BotsByBotIdData = {
     body?: {
         name?: string;
         systemPrompt?: string;
@@ -420,10 +523,10 @@ export type PatchV1BotsByBotIdData = {
         botId: string;
     };
     query?: never;
-    url: '/v1/bots/{botId}';
+    url: '/api/v1/bots/{botId}';
 };
 
-export type PatchV1BotsByBotIdErrors = {
+export type PatchApiV1BotsByBotIdErrors = {
     /**
      * Bot not found
      */
@@ -432,9 +535,9 @@ export type PatchV1BotsByBotIdErrors = {
     };
 };
 
-export type PatchV1BotsByBotIdError = PatchV1BotsByBotIdErrors[keyof PatchV1BotsByBotIdErrors];
+export type PatchApiV1BotsByBotIdError = PatchApiV1BotsByBotIdErrors[keyof PatchApiV1BotsByBotIdErrors];
 
-export type PatchV1BotsByBotIdResponses = {
+export type PatchApiV1BotsByBotIdResponses = {
     /**
      * Bot updated
      */
@@ -451,18 +554,18 @@ export type PatchV1BotsByBotIdResponses = {
     };
 };
 
-export type PatchV1BotsByBotIdResponse = PatchV1BotsByBotIdResponses[keyof PatchV1BotsByBotIdResponses];
+export type PatchApiV1BotsByBotIdResponse = PatchApiV1BotsByBotIdResponses[keyof PatchApiV1BotsByBotIdResponses];
 
-export type PostV1BotsByBotIdPauseData = {
+export type PostApiV1BotsByBotIdPauseData = {
     body?: never;
     path: {
         botId: string;
     };
     query?: never;
-    url: '/v1/bots/{botId}/pause';
+    url: '/api/v1/bots/{botId}/pause';
 };
 
-export type PostV1BotsByBotIdPauseErrors = {
+export type PostApiV1BotsByBotIdPauseErrors = {
     /**
      * Bot not found
      */
@@ -471,9 +574,9 @@ export type PostV1BotsByBotIdPauseErrors = {
     };
 };
 
-export type PostV1BotsByBotIdPauseError = PostV1BotsByBotIdPauseErrors[keyof PostV1BotsByBotIdPauseErrors];
+export type PostApiV1BotsByBotIdPauseError = PostApiV1BotsByBotIdPauseErrors[keyof PostApiV1BotsByBotIdPauseErrors];
 
-export type PostV1BotsByBotIdPauseResponses = {
+export type PostApiV1BotsByBotIdPauseResponses = {
     /**
      * Bot paused
      */
@@ -490,18 +593,18 @@ export type PostV1BotsByBotIdPauseResponses = {
     };
 };
 
-export type PostV1BotsByBotIdPauseResponse = PostV1BotsByBotIdPauseResponses[keyof PostV1BotsByBotIdPauseResponses];
+export type PostApiV1BotsByBotIdPauseResponse = PostApiV1BotsByBotIdPauseResponses[keyof PostApiV1BotsByBotIdPauseResponses];
 
-export type PostV1BotsByBotIdResumeData = {
+export type PostApiV1BotsByBotIdResumeData = {
     body?: never;
     path: {
         botId: string;
     };
     query?: never;
-    url: '/v1/bots/{botId}/resume';
+    url: '/api/v1/bots/{botId}/resume';
 };
 
-export type PostV1BotsByBotIdResumeErrors = {
+export type PostApiV1BotsByBotIdResumeErrors = {
     /**
      * Bot not found
      */
@@ -510,9 +613,9 @@ export type PostV1BotsByBotIdResumeErrors = {
     };
 };
 
-export type PostV1BotsByBotIdResumeError = PostV1BotsByBotIdResumeErrors[keyof PostV1BotsByBotIdResumeErrors];
+export type PostApiV1BotsByBotIdResumeError = PostApiV1BotsByBotIdResumeErrors[keyof PostApiV1BotsByBotIdResumeErrors];
 
-export type PostV1BotsByBotIdResumeResponses = {
+export type PostApiV1BotsByBotIdResumeResponses = {
     /**
      * Bot resumed
      */
@@ -529,16 +632,16 @@ export type PostV1BotsByBotIdResumeResponses = {
     };
 };
 
-export type PostV1BotsByBotIdResumeResponse = PostV1BotsByBotIdResumeResponses[keyof PostV1BotsByBotIdResumeResponses];
+export type PostApiV1BotsByBotIdResumeResponse = PostApiV1BotsByBotIdResumeResponses[keyof PostApiV1BotsByBotIdResumeResponses];
 
-export type GetV1ChannelsSlackOauthUrlData = {
+export type GetApiV1ChannelsSlackOauthUrlData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/v1/channels/slack/oauth-url';
+    url: '/api/v1/channels/slack/oauth-url';
 };
 
-export type GetV1ChannelsSlackOauthUrlErrors = {
+export type GetApiV1ChannelsSlackOauthUrlErrors = {
     /**
      * Slack OAuth not configured
      */
@@ -547,9 +650,9 @@ export type GetV1ChannelsSlackOauthUrlErrors = {
     };
 };
 
-export type GetV1ChannelsSlackOauthUrlError = GetV1ChannelsSlackOauthUrlErrors[keyof GetV1ChannelsSlackOauthUrlErrors];
+export type GetApiV1ChannelsSlackOauthUrlError = GetApiV1ChannelsSlackOauthUrlErrors[keyof GetApiV1ChannelsSlackOauthUrlErrors];
 
-export type GetV1ChannelsSlackOauthUrlResponses = {
+export type GetApiV1ChannelsSlackOauthUrlResponses = {
     /**
      * Slack OAuth authorization URL
      */
@@ -558,9 +661,9 @@ export type GetV1ChannelsSlackOauthUrlResponses = {
     };
 };
 
-export type GetV1ChannelsSlackOauthUrlResponse = GetV1ChannelsSlackOauthUrlResponses[keyof GetV1ChannelsSlackOauthUrlResponses];
+export type GetApiV1ChannelsSlackOauthUrlResponse = GetApiV1ChannelsSlackOauthUrlResponses[keyof GetApiV1ChannelsSlackOauthUrlResponses];
 
-export type PostV1ChannelsSlackConnectData = {
+export type PostApiV1ChannelsSlackConnectData = {
     body?: {
         botToken: string;
         signingSecret: string;
@@ -570,10 +673,10 @@ export type PostV1ChannelsSlackConnectData = {
     };
     path?: never;
     query?: never;
-    url: '/v1/channels/slack/connect';
+    url: '/api/v1/channels/slack/connect';
 };
 
-export type PostV1ChannelsSlackConnectErrors = {
+export type PostApiV1ChannelsSlackConnectErrors = {
     /**
      * Slack already connected
      */
@@ -582,9 +685,9 @@ export type PostV1ChannelsSlackConnectErrors = {
     };
 };
 
-export type PostV1ChannelsSlackConnectError = PostV1ChannelsSlackConnectErrors[keyof PostV1ChannelsSlackConnectErrors];
+export type PostApiV1ChannelsSlackConnectError = PostApiV1ChannelsSlackConnectErrors[keyof PostApiV1ChannelsSlackConnectErrors];
 
-export type PostV1ChannelsSlackConnectResponses = {
+export type PostApiV1ChannelsSlackConnectResponses = {
     /**
      * Slack channel connected
      */
@@ -601,9 +704,9 @@ export type PostV1ChannelsSlackConnectResponses = {
     };
 };
 
-export type PostV1ChannelsSlackConnectResponse = PostV1ChannelsSlackConnectResponses[keyof PostV1ChannelsSlackConnectResponses];
+export type PostApiV1ChannelsSlackConnectResponse = PostApiV1ChannelsSlackConnectResponses[keyof PostApiV1ChannelsSlackConnectResponses];
 
-export type PostV1ChannelsDiscordConnectData = {
+export type PostApiV1ChannelsDiscordConnectData = {
     body?: {
         botToken: string;
         appId: string;
@@ -612,10 +715,10 @@ export type PostV1ChannelsDiscordConnectData = {
     };
     path?: never;
     query?: never;
-    url: '/v1/channels/discord/connect';
+    url: '/api/v1/channels/discord/connect';
 };
 
-export type PostV1ChannelsDiscordConnectErrors = {
+export type PostApiV1ChannelsDiscordConnectErrors = {
     /**
      * Discord already connected
      */
@@ -624,9 +727,9 @@ export type PostV1ChannelsDiscordConnectErrors = {
     };
 };
 
-export type PostV1ChannelsDiscordConnectError = PostV1ChannelsDiscordConnectErrors[keyof PostV1ChannelsDiscordConnectErrors];
+export type PostApiV1ChannelsDiscordConnectError = PostApiV1ChannelsDiscordConnectErrors[keyof PostApiV1ChannelsDiscordConnectErrors];
 
-export type PostV1ChannelsDiscordConnectResponses = {
+export type PostApiV1ChannelsDiscordConnectResponses = {
     /**
      * Discord channel connected
      */
@@ -643,16 +746,16 @@ export type PostV1ChannelsDiscordConnectResponses = {
     };
 };
 
-export type PostV1ChannelsDiscordConnectResponse = PostV1ChannelsDiscordConnectResponses[keyof PostV1ChannelsDiscordConnectResponses];
+export type PostApiV1ChannelsDiscordConnectResponse = PostApiV1ChannelsDiscordConnectResponses[keyof PostApiV1ChannelsDiscordConnectResponses];
 
-export type GetV1ChannelsData = {
+export type GetApiV1ChannelsData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/v1/channels';
+    url: '/api/v1/channels';
 };
 
-export type GetV1ChannelsResponses = {
+export type GetApiV1ChannelsResponses = {
     /**
      * Channel list
      */
@@ -671,18 +774,18 @@ export type GetV1ChannelsResponses = {
     };
 };
 
-export type GetV1ChannelsResponse = GetV1ChannelsResponses[keyof GetV1ChannelsResponses];
+export type GetApiV1ChannelsResponse = GetApiV1ChannelsResponses[keyof GetApiV1ChannelsResponses];
 
-export type DeleteV1ChannelsByChannelIdData = {
+export type DeleteApiV1ChannelsByChannelIdData = {
     body?: never;
     path: {
         channelId: string;
     };
     query?: never;
-    url: '/v1/channels/{channelId}';
+    url: '/api/v1/channels/{channelId}';
 };
 
-export type DeleteV1ChannelsByChannelIdErrors = {
+export type DeleteApiV1ChannelsByChannelIdErrors = {
     /**
      * Not found
      */
@@ -691,9 +794,9 @@ export type DeleteV1ChannelsByChannelIdErrors = {
     };
 };
 
-export type DeleteV1ChannelsByChannelIdError = DeleteV1ChannelsByChannelIdErrors[keyof DeleteV1ChannelsByChannelIdErrors];
+export type DeleteApiV1ChannelsByChannelIdError = DeleteApiV1ChannelsByChannelIdErrors[keyof DeleteApiV1ChannelsByChannelIdErrors];
 
-export type DeleteV1ChannelsByChannelIdResponses = {
+export type DeleteApiV1ChannelsByChannelIdResponses = {
     /**
      * Channel disconnected
      */
@@ -702,18 +805,18 @@ export type DeleteV1ChannelsByChannelIdResponses = {
     };
 };
 
-export type DeleteV1ChannelsByChannelIdResponse = DeleteV1ChannelsByChannelIdResponses[keyof DeleteV1ChannelsByChannelIdResponses];
+export type DeleteApiV1ChannelsByChannelIdResponse = DeleteApiV1ChannelsByChannelIdResponses[keyof DeleteApiV1ChannelsByChannelIdResponses];
 
-export type GetV1ChannelsByChannelIdStatusData = {
+export type GetApiV1ChannelsByChannelIdStatusData = {
     body?: never;
     path: {
         channelId: string;
     };
     query?: never;
-    url: '/v1/channels/{channelId}/status';
+    url: '/api/v1/channels/{channelId}/status';
 };
 
-export type GetV1ChannelsByChannelIdStatusErrors = {
+export type GetApiV1ChannelsByChannelIdStatusErrors = {
     /**
      * Not found
      */
@@ -722,9 +825,9 @@ export type GetV1ChannelsByChannelIdStatusErrors = {
     };
 };
 
-export type GetV1ChannelsByChannelIdStatusError = GetV1ChannelsByChannelIdStatusErrors[keyof GetV1ChannelsByChannelIdStatusErrors];
+export type GetApiV1ChannelsByChannelIdStatusError = GetApiV1ChannelsByChannelIdStatusErrors[keyof GetApiV1ChannelsByChannelIdStatusErrors];
 
-export type GetV1ChannelsByChannelIdStatusResponses = {
+export type GetApiV1ChannelsByChannelIdStatusResponses = {
     /**
      * Channel status
      */
@@ -741,18 +844,18 @@ export type GetV1ChannelsByChannelIdStatusResponses = {
     };
 };
 
-export type GetV1ChannelsByChannelIdStatusResponse = GetV1ChannelsByChannelIdStatusResponses[keyof GetV1ChannelsByChannelIdStatusResponses];
+export type GetApiV1ChannelsByChannelIdStatusResponse = GetApiV1ChannelsByChannelIdStatusResponses[keyof GetApiV1ChannelsByChannelIdStatusResponses];
 
-export type PostV1InviteValidateData = {
+export type PostApiV1InviteValidateData = {
     body?: {
         code: string;
     };
     path?: never;
     query?: never;
-    url: '/v1/invite/validate';
+    url: '/api/v1/invite/validate';
 };
 
-export type PostV1InviteValidateResponses = {
+export type PostApiV1InviteValidateResponses = {
     /**
      * Validation result
      */
@@ -762,16 +865,16 @@ export type PostV1InviteValidateResponses = {
     };
 };
 
-export type PostV1InviteValidateResponse = PostV1InviteValidateResponses[keyof PostV1InviteValidateResponses];
+export type PostApiV1InviteValidateResponse = PostApiV1InviteValidateResponses[keyof PostApiV1InviteValidateResponses];
 
-export type GetV1ModelsData = {
+export type GetApiV1ModelsData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/v1/models';
+    url: '/api/v1/models';
 };
 
-export type GetV1ModelsResponses = {
+export type GetApiV1ModelsResponses = {
     /**
      * Available models
      */
@@ -786,7 +889,7 @@ export type GetV1ModelsResponses = {
     };
 };
 
-export type GetV1ModelsResponse = GetV1ModelsResponses[keyof GetV1ModelsResponses];
+export type GetApiV1ModelsResponse = GetApiV1ModelsResponses[keyof GetApiV1ModelsResponses];
 
 export type GetApiInternalPoolsByPoolIdConfigData = {
     body?: never;
@@ -856,6 +959,20 @@ export type GetApiInternalPoolsByPoolIdConfigResponses = {
                 };
             };
         };
+        tools?: {
+            exec?: {
+                security?: 'deny' | 'allowlist' | 'full';
+                ask?: 'off' | 'on-miss' | 'always';
+                host?: 'sandbox' | 'gateway' | 'node';
+            };
+        };
+        skills?: {
+            load?: {
+                watch?: boolean;
+                watchDebounceMs?: number;
+                extraDirs?: Array<string>;
+            };
+        };
         agents: {
             defaults?: {
                 model?: string | {
@@ -900,6 +1017,7 @@ export type GetApiInternalPoolsByPoolIdConfigResponses = {
                 enabled?: boolean;
                 groupPolicy?: 'open' | 'allowlist' | 'disabled';
                 dmPolicy?: 'pairing' | 'allowlist' | 'open';
+                allowFrom?: Array<string>;
                 accounts: {
                     [key: string]: {
                         enabled?: boolean;
@@ -1048,6 +1166,20 @@ export type GetApiInternalPoolsByPoolIdConfigLatestResponses = {
                     };
                 };
             };
+            tools?: {
+                exec?: {
+                    security?: 'deny' | 'allowlist' | 'full';
+                    ask?: 'off' | 'on-miss' | 'always';
+                    host?: 'sandbox' | 'gateway' | 'node';
+                };
+            };
+            skills?: {
+                load?: {
+                    watch?: boolean;
+                    watchDebounceMs?: number;
+                    extraDirs?: Array<string>;
+                };
+            };
             agents: {
                 defaults?: {
                     model?: string | {
@@ -1092,6 +1224,7 @@ export type GetApiInternalPoolsByPoolIdConfigLatestResponses = {
                     enabled?: boolean;
                     groupPolicy?: 'open' | 'allowlist' | 'disabled';
                     dmPolicy?: 'pairing' | 'allowlist' | 'open';
+                    allowFrom?: Array<string>;
                     accounts: {
                         [key: string]: {
                             enabled?: boolean;
@@ -1194,6 +1327,20 @@ export type GetApiInternalPoolsByPoolIdConfigVersionsByVersionResponses = {
                     };
                 };
             };
+            tools?: {
+                exec?: {
+                    security?: 'deny' | 'allowlist' | 'full';
+                    ask?: 'off' | 'on-miss' | 'always';
+                    host?: 'sandbox' | 'gateway' | 'node';
+                };
+            };
+            skills?: {
+                load?: {
+                    watch?: boolean;
+                    watchDebounceMs?: number;
+                    extraDirs?: Array<string>;
+                };
+            };
             agents: {
                 defaults?: {
                     model?: string | {
@@ -1238,6 +1385,7 @@ export type GetApiInternalPoolsByPoolIdConfigVersionsByVersionResponses = {
                     enabled?: boolean;
                     groupPolicy?: 'open' | 'allowlist' | 'disabled';
                     dmPolicy?: 'pairing' | 'allowlist' | 'open';
+                    allowFrom?: Array<string>;
                     accounts: {
                         [key: string]: {
                             enabled?: boolean;
@@ -1267,7 +1415,7 @@ export type GetApiInternalPoolsByPoolIdConfigVersionsByVersionResponses = {
 
 export type GetApiInternalPoolsByPoolIdConfigVersionsByVersionResponse = GetApiInternalPoolsByPoolIdConfigVersionsByVersionResponses[keyof GetApiInternalPoolsByPoolIdConfigVersionsByVersionResponses];
 
-export type GetV1ArtifactsData = {
+export type GetApiV1ArtifactsData = {
     body?: never;
     path?: never;
     query?: {
@@ -1278,10 +1426,10 @@ export type GetV1ArtifactsData = {
         limit?: number;
         offset?: number;
     };
-    url: '/v1/artifacts';
+    url: '/api/v1/artifacts';
 };
 
-export type GetV1ArtifactsResponses = {
+export type GetApiV1ArtifactsResponses = {
     /**
      * Artifact list
      */
@@ -1314,16 +1462,16 @@ export type GetV1ArtifactsResponses = {
     };
 };
 
-export type GetV1ArtifactsResponse = GetV1ArtifactsResponses[keyof GetV1ArtifactsResponses];
+export type GetApiV1ArtifactsResponse = GetApiV1ArtifactsResponses[keyof GetApiV1ArtifactsResponses];
 
-export type GetV1ArtifactsStatsData = {
+export type GetApiV1ArtifactsStatsData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/v1/artifacts/stats';
+    url: '/api/v1/artifacts/stats';
 };
 
-export type GetV1ArtifactsStatsResponses = {
+export type GetApiV1ArtifactsStatsResponses = {
     /**
      * Artifact statistics
      */
@@ -1338,18 +1486,18 @@ export type GetV1ArtifactsStatsResponses = {
     };
 };
 
-export type GetV1ArtifactsStatsResponse = GetV1ArtifactsStatsResponses[keyof GetV1ArtifactsStatsResponses];
+export type GetApiV1ArtifactsStatsResponse = GetApiV1ArtifactsStatsResponses[keyof GetApiV1ArtifactsStatsResponses];
 
-export type DeleteV1ArtifactsByIdData = {
+export type DeleteApiV1ArtifactsByIdData = {
     body?: never;
     path: {
         id: string;
     };
     query?: never;
-    url: '/v1/artifacts/{id}';
+    url: '/api/v1/artifacts/{id}';
 };
 
-export type DeleteV1ArtifactsByIdErrors = {
+export type DeleteApiV1ArtifactsByIdErrors = {
     /**
      * Artifact not found
      */
@@ -1358,9 +1506,9 @@ export type DeleteV1ArtifactsByIdErrors = {
     };
 };
 
-export type DeleteV1ArtifactsByIdError = DeleteV1ArtifactsByIdErrors[keyof DeleteV1ArtifactsByIdErrors];
+export type DeleteApiV1ArtifactsByIdError = DeleteApiV1ArtifactsByIdErrors[keyof DeleteApiV1ArtifactsByIdErrors];
 
-export type DeleteV1ArtifactsByIdResponses = {
+export type DeleteApiV1ArtifactsByIdResponses = {
     /**
      * Artifact deleted
      */
@@ -1369,18 +1517,18 @@ export type DeleteV1ArtifactsByIdResponses = {
     };
 };
 
-export type DeleteV1ArtifactsByIdResponse = DeleteV1ArtifactsByIdResponses[keyof DeleteV1ArtifactsByIdResponses];
+export type DeleteApiV1ArtifactsByIdResponse = DeleteApiV1ArtifactsByIdResponses[keyof DeleteApiV1ArtifactsByIdResponses];
 
-export type GetV1ArtifactsByIdData = {
+export type GetApiV1ArtifactsByIdData = {
     body?: never;
     path: {
         id: string;
     };
     query?: never;
-    url: '/v1/artifacts/{id}';
+    url: '/api/v1/artifacts/{id}';
 };
 
-export type GetV1ArtifactsByIdErrors = {
+export type GetApiV1ArtifactsByIdErrors = {
     /**
      * Artifact not found
      */
@@ -1389,9 +1537,9 @@ export type GetV1ArtifactsByIdErrors = {
     };
 };
 
-export type GetV1ArtifactsByIdError = GetV1ArtifactsByIdErrors[keyof GetV1ArtifactsByIdErrors];
+export type GetApiV1ArtifactsByIdError = GetApiV1ArtifactsByIdErrors[keyof GetApiV1ArtifactsByIdErrors];
 
-export type GetV1ArtifactsByIdResponses = {
+export type GetApiV1ArtifactsByIdResponses = {
     /**
      * Artifact details
      */
@@ -1419,9 +1567,9 @@ export type GetV1ArtifactsByIdResponses = {
     };
 };
 
-export type GetV1ArtifactsByIdResponse = GetV1ArtifactsByIdResponses[keyof GetV1ArtifactsByIdResponses];
+export type GetApiV1ArtifactsByIdResponse = GetApiV1ArtifactsByIdResponses[keyof GetApiV1ArtifactsByIdResponses];
 
-export type GetV1SessionsData = {
+export type GetApiV1SessionsData = {
     body?: never;
     path?: never;
     query?: {
@@ -1431,10 +1579,10 @@ export type GetV1SessionsData = {
         limit?: number;
         offset?: number;
     };
-    url: '/v1/sessions';
+    url: '/api/v1/sessions';
 };
 
-export type GetV1SessionsResponses = {
+export type GetApiV1SessionsResponses = {
     /**
      * Session list
      */
@@ -1461,18 +1609,18 @@ export type GetV1SessionsResponses = {
     };
 };
 
-export type GetV1SessionsResponse = GetV1SessionsResponses[keyof GetV1SessionsResponses];
+export type GetApiV1SessionsResponse = GetApiV1SessionsResponses[keyof GetApiV1SessionsResponses];
 
-export type GetV1SessionsByIdData = {
+export type GetApiV1SessionsByIdData = {
     body?: never;
     path: {
         id: string;
     };
     query?: never;
-    url: '/v1/sessions/{id}';
+    url: '/api/v1/sessions/{id}';
 };
 
-export type GetV1SessionsByIdErrors = {
+export type GetApiV1SessionsByIdErrors = {
     /**
      * Session not found
      */
@@ -1481,9 +1629,9 @@ export type GetV1SessionsByIdErrors = {
     };
 };
 
-export type GetV1SessionsByIdError = GetV1SessionsByIdErrors[keyof GetV1SessionsByIdErrors];
+export type GetApiV1SessionsByIdError = GetApiV1SessionsByIdErrors[keyof GetApiV1SessionsByIdErrors];
 
-export type GetV1SessionsByIdResponses = {
+export type GetApiV1SessionsByIdResponses = {
     /**
      * Session details
      */
@@ -1505,7 +1653,7 @@ export type GetV1SessionsByIdResponses = {
     };
 };
 
-export type GetV1SessionsByIdResponse = GetV1SessionsByIdResponses[keyof GetV1SessionsByIdResponses];
+export type GetApiV1SessionsByIdResponse = GetApiV1SessionsByIdResponses[keyof GetApiV1SessionsByIdResponses];
 
 export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});

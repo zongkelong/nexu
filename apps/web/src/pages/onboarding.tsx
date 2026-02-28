@@ -6,10 +6,10 @@ import { toast } from "sonner";
 import "@/lib/api";
 import { client } from "@/lib/api";
 import {
-  getV1ChannelsSlackOauthUrl,
-  getV1Me,
-  postV1ChannelsDiscordConnect,
-  postV1ChannelsSlackConnect,
+  getApiV1ChannelsSlackOauthUrl,
+  getApiV1Me,
+  postApiV1ChannelsDiscordConnect,
+  postApiV1ChannelsSlackConnect,
 } from "../../lib/api/sdk.gen";
 
 // ── Constants ──────────────────────────────────────────────
@@ -992,7 +992,7 @@ function ChannelConnectModal({
   const handleSlackOAuth = async () => {
     setOauthLoading(true);
     try {
-      const { data, error } = await getV1ChannelsSlackOauthUrl();
+      const { data, error } = await getApiV1ChannelsSlackOauthUrl();
       if (error) {
         toast.error("Failed to get Slack OAuth URL");
         return;
@@ -1010,12 +1010,12 @@ function ChannelConnectModal({
     setConnecting(true);
     try {
       if (channelId === "slack") {
-        const { error } = await postV1ChannelsSlackConnect({
+        const { error } = await postApiV1ChannelsSlackConnect({
           body: { botToken: field1, signingSecret: field2 },
         });
         if (error) throw new Error("Connection failed");
       } else if (channelId === "discord") {
-        const { error } = await postV1ChannelsDiscordConnect({
+        const { error } = await postApiV1ChannelsDiscordConnect({
           body: { botToken: field2, appId: field1 },
         });
         if (error) throw new Error("Connection failed");
@@ -1801,7 +1801,7 @@ export function OnboardingPage() {
   const { data: profile, isLoading: profileLoading } = useQuery({
     queryKey: ["me"],
     queryFn: async () => {
-      const { data } = await getV1Me();
+      const { data } = await getApiV1Me();
       return data;
     },
   });
@@ -1809,7 +1809,7 @@ export function OnboardingPage() {
   const completeMutation = useMutation({
     mutationFn: async (payload: OnboardingData) => {
       const resp = await client.post({
-        url: "/v1/onboarding/complete",
+        url: "/api/v1/onboarding/complete",
         body: payload,
         headers: { "Content-Type": "application/json" },
       });

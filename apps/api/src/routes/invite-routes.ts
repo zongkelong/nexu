@@ -12,7 +12,7 @@ import type { AppBindings } from "../types.js";
 
 const validateInviteRoute = createRoute({
   method: "post",
-  path: "/v1/invite/validate",
+  path: "/api/v1/invite/validate",
   tags: ["Invite"],
   request: {
     body: {

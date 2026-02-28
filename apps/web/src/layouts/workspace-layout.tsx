@@ -13,7 +13,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import "@/lib/api";
-import { getV1Sessions } from "../../lib/api/sdk.gen";
+import { getApiV1Sessions } from "../../lib/api/sdk.gen";
 
 type Platform = "slack" | "discord" | "whatsapp" | "telegram" | "web";
 
@@ -123,7 +123,7 @@ export function WorkspaceLayout() {
   const { data: sessionsData } = useQuery({
     queryKey: ["sessions"],
     queryFn: async () => {
-      const { data } = await getV1Sessions({
+      const { data } = await getApiV1Sessions({
         query: { limit: 100 },
       });
       return data;

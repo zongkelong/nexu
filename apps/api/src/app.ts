@@ -44,7 +44,7 @@ export function createApp() {
   registerArtifactInternalRoutes(app);
   registerSessionInternalRoutes(app);
 
-  app.use("/v1/*", authMiddleware);
+  app.use("/api/v1/*", authMiddleware);
 
   registerUserRoutes(app);
   registerOnboardingRoutes(app);

@@ -24,7 +24,7 @@ const botIdParam = z.object({
 
 const createBotRoute = createRoute({
   method: "post",
-  path: "/v1/bots",
+  path: "/api/v1/bots",
   tags: ["Bots"],
   request: {
     body: { content: { "application/json": { schema: createBotSchema } } },
@@ -51,7 +51,7 @@ const createBotRoute = createRoute({
 
 const listBotsRoute = createRoute({
   method: "get",
-  path: "/v1/bots",
+  path: "/api/v1/bots",
   tags: ["Bots"],
   responses: {
     200: {
@@ -63,7 +63,7 @@ const listBotsRoute = createRoute({
 
 const getBotRoute = createRoute({
   method: "get",
-  path: "/v1/bots/{botId}",
+  path: "/api/v1/bots/{botId}",
   tags: ["Bots"],
   request: {
     params: botIdParam,
@@ -82,7 +82,7 @@ const getBotRoute = createRoute({
 
 const updateBotRoute = createRoute({
   method: "patch",
-  path: "/v1/bots/{botId}",
+  path: "/api/v1/bots/{botId}",
   tags: ["Bots"],
   request: {
     params: botIdParam,
@@ -102,7 +102,7 @@ const updateBotRoute = createRoute({
 
 const deleteBotRoute = createRoute({
   method: "delete",
-  path: "/v1/bots/{botId}",
+  path: "/api/v1/bots/{botId}",
   tags: ["Bots"],
   request: {
     params: botIdParam,
@@ -123,7 +123,7 @@ const deleteBotRoute = createRoute({
 
 const pauseBotRoute = createRoute({
   method: "post",
-  path: "/v1/bots/{botId}/pause",
+  path: "/api/v1/bots/{botId}/pause",
   tags: ["Bots"],
   request: {
     params: botIdParam,
@@ -142,7 +142,7 @@ const pauseBotRoute = createRoute({
 
 const resumeBotRoute = createRoute({
   method: "post",
-  path: "/v1/bots/{botId}/resume",
+  path: "/api/v1/bots/{botId}/resume",
   tags: ["Bots"],
   request: {
     params: botIdParam,

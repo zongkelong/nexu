@@ -7,7 +7,7 @@ import type { AppBindings } from "../types.js";
 
 const listModelsRoute = createRoute({
   method: "get",
-  path: "/v1/models",
+  path: "/api/v1/models",
   tags: ["Models"],
   responses: {
     200: {
