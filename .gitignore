@@ -12,5 +12,6 @@ tmp/
 *.db-shm
 *.db-wal
 openapi-ts-error-*.log
+.astro/
 .openclaw/
 .vscode
