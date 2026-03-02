@@ -17,7 +17,8 @@ COPY packages/shared/ packages/shared/
 COPY apps/api/ apps/api/
 
 RUN pnpm --filter @nexu/shared build && \
-    pnpm --filter @nexu/api build
+    pnpm --filter @nexu/api build && \
+    test -f apps/api/dist/index.js || (echo "FATAL: apps/api/dist/index.js not found — check tsconfig rootDir" && exit 1)
 
 # ---- Runtime ----
 FROM node:22-slim
