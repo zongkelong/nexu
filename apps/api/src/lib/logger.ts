@@ -11,4 +11,16 @@ export const logger = pino({
     version,
   },
   timestamp: pino.stdTimeFunctions.isoTime,
+  ...(env !== "production"
+    ? {
+        transport: {
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            ignore: "pid,hostname,service,env,version",
+            translateTime: "HH:MM:ss.l",
+          },
+        },
+      }
+    : {}),
 });
