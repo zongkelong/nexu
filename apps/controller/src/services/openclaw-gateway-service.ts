@@ -65,6 +65,24 @@ export interface ChannelLiveStatusEntry {
   lastError: string | null;
 }
 
+export interface SendChannelMessageInput {
+  channel: string;
+  to: string;
+  message: string;
+  accountId?: string;
+  threadId?: string;
+  sessionKey?: string;
+  idempotencyKey?: string;
+}
+
+export interface SendChannelMessageResult {
+  runId?: string;
+  messageId?: string;
+  channel?: string;
+  chatId?: string;
+  conversationId?: string;
+}
+
 interface LiveStatusChannelInput {
   id: string;
   channelType: string;
@@ -115,6 +133,33 @@ export class OpenClawGatewayService {
    */
   async getChannelsStatus(): Promise<ChannelsStatusResult> {
     return this.getChannelsStatusSnapshot({ probe: true, timeoutMs: 8000 });
+  }
+
+  async sendChannelMessage(
+    input: SendChannelMessageInput,
+  ): Promise<SendChannelMessageResult> {
+    return this.wsClient.request<SendChannelMessageResult>("send", {
+      to: input.to,
+      message: input.message,
+      channel: input.channel,
+      accountId: input.accountId,
+      threadId: input.threadId,
+      sessionKey: input.sessionKey,
+      idempotencyKey:
+        input.idempotencyKey ??
+        createHash("sha256")
+          .update(
+            JSON.stringify({
+              channel: input.channel,
+              to: input.to,
+              message: input.message,
+              accountId: input.accountId ?? null,
+              threadId: input.threadId ?? null,
+              sessionKey: input.sessionKey ?? null,
+            }),
+          )
+          .digest("hex"),
+    });
   }
 
   async getChannelsStatusSnapshot(opts?: {

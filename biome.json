@@ -52,6 +52,8 @@
       "specs/**",
       "apps/web/lib/api",
       "apps/web/public/skill-translations-zh.json",
+      "apps/api/migrations/meta/*.json",
+      "openclaw-runtime-patches/**",
       "*.gen.ts",
       "*.d.ts",
       "openapi.json",

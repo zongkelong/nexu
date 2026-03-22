@@ -1041,6 +1041,220 @@
         }
       }
     },
+    "/api/internal/desktop/fallback-events": {
+      "get": {
+        "tags": [
+          "Desktop"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent channel fallback diagnostics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "receivedAt": {
+                            "type": "string"
+                          },
+                          "channel": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "reasonCode": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "accountId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "to": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "threadId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "sessionKey": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "actionId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "fallbackOutcome": {
+                            "type": "string",
+                            "enum": [
+                              "sent",
+                              "skipped",
+                              "failed"
+                            ]
+                          },
+                          "fallbackReason": {
+                            "type": "string"
+                          },
+                          "error": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "sendResult": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "runId": {
+                                "type": "string"
+                              },
+                              "messageId": {
+                                "type": "string"
+                              },
+                              "channel": {
+                                "type": "string"
+                              },
+                              "chatId": {
+                                "type": "string"
+                              },
+                              "conversationId": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "receivedAt",
+                          "channel",
+                          "status",
+                          "reasonCode",
+                          "accountId",
+                          "to",
+                          "threadId",
+                          "sessionKey",
+                          "actionId",
+                          "fallbackOutcome",
+                          "fallbackReason",
+                          "error",
+                          "sendResult"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "events"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/internal/desktop/preferences": {
+      "get": {
+        "tags": [
+          "Desktop"
+        ],
+        "responses": {
+          "200": {
+            "description": "Desktop preferences",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "locale": {
+                      "type": "string",
+                      "enum": [
+                        "en",
+                        "zh-CN"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "locale"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Desktop"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "locale": {
+                    "type": "string",
+                    "enum": [
+                      "en",
+                      "zh-CN"
+                    ]
+                  }
+                },
+                "required": [
+                  "locale"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated desktop preferences",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "locale": {
+                      "type": "string",
+                      "enum": [
+                        "en",
+                        "zh-CN"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "locale"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/internal/desktop/cloud-status": {
       "get": {
         "tags": [

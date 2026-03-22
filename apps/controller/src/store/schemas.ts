@@ -91,7 +91,14 @@ const nexuConfigObjectSchema = z.object({
   integrations: z.array(integrationResponseSchema).default([]),
   channels: z.array(channelResponseSchema).default([]),
   templates: z.record(z.string(), controllerTemplateSchema).default({}),
-  desktop: z.record(z.unknown()).default({}),
+  desktop: z
+    .object({
+      localProfile: z.unknown().optional(),
+      cloud: z.unknown().optional(),
+      locale: z.enum(["en", "zh-CN"]).optional(),
+    })
+    .catchall(z.unknown())
+    .default({}),
   secrets: z.record(z.string(), z.string()).default({}),
 });
 

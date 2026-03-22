@@ -17,6 +17,12 @@ const RESTART_WINDOW_MS = 120_000;
 // gateway while the successor is still running doctor/startup work.
 const CONTROLLED_RESTART_GRACE_MS = 45_000;
 const CONTROLLED_RESTART_PROBE_INTERVAL_MS = 500;
+const NEXU_EVENT_MARKER = "NEXU_EVENT ";
+
+export interface OpenClawRuntimeEvent {
+  event: string;
+  payload?: unknown;
+}
 
 export class OpenClawProcessManager {
   private child: ChildProcess | null = null;
@@ -26,6 +32,7 @@ export class OpenClawProcessManager {
   private controlledRestartExpected = false;
   private controlledRestartTimer: NodeJS.Timeout | null = null;
   private controlledRestartSuccessorPid: number | null = null;
+  private eventListeners = new Set<(event: OpenClawRuntimeEvent) => void>();
 
   constructor(private readonly env: ControllerEnv) {}
 
@@ -53,6 +60,12 @@ export class OpenClawProcessManager {
     this.controlledRestartExpected = true;
   }
 
+  onRuntimeEvent(listener: (event: OpenClawRuntimeEvent) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => {
+      this.eventListeners.delete(listener);
+    };
+  }
   start(): void {
     if (!this.env.manageOpenclawProcess || this.child !== null) {
       return;
@@ -134,6 +147,7 @@ export class OpenClawProcessManager {
           }
         }
         logger.info({ stream: "stdout", source: "openclaw" }, line);
+        this.emitRuntimeEventFromLine(line);
       });
     }
 
@@ -325,6 +339,123 @@ export class OpenClawProcessManager {
     );
   }
 
+  private emitRuntimeEventFromLine(line: string): void {
+    const markerIndex = line.indexOf(NEXU_EVENT_MARKER);
+    if (markerIndex < 0) {
+      return;
+    }
+
+    const eventLine = line.slice(markerIndex + NEXU_EVENT_MARKER.length).trim();
+    const firstSpaceIndex = eventLine.indexOf(" ");
+    const eventName =
+      firstSpaceIndex >= 0 ? eventLine.slice(0, firstSpaceIndex) : eventLine;
+    const rawPayload =
+      firstSpaceIndex >= 0 ? eventLine.slice(firstSpaceIndex + 1).trim() : "";
+
+    if (!eventName) {
+      return;
+    }
+
+    let payload: unknown;
+    if (rawPayload) {
+      try {
+        payload = JSON.parse(this.extractJsonPayload(rawPayload)) as unknown;
+      } catch (error) {
+        logger.warn(
+          {
+            error: error instanceof Error ? error.message : String(error),
+            event: eventName,
+          },
+          "openclaw_runtime_event_parse_failed",
+        );
+        return;
+      }
+    }
+
+    for (const listener of this.eventListeners) {
+      try {
+        listener({ event: eventName, payload });
+      } catch (error) {
+        logger.warn(
+          {
+            error: error instanceof Error ? error.message : String(error),
+            event: eventName,
+          },
+          "openclaw_runtime_event_listener_failed",
+        );
+      }
+    }
+  }
+
+  private extractJsonPayload(rawPayload: string): string {
+    const sanitized = this.stripAnsi(rawPayload).trim();
+    if (!sanitized.startsWith("{")) {
+      return sanitized;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = 0; index < sanitized.length; index += 1) {
+      const char = sanitized[index];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
+      if (char === "{") {
+        depth += 1;
+        continue;
+      }
+
+      if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          return sanitized.slice(0, index + 1);
+        }
+      }
+    }
+
+    return sanitized;
+  }
+
+  private stripAnsi(value: string): string {
+    let result = "";
+
+    for (let index = 0; index < value.length; index += 1) {
+      const char = value[index];
+      if (char === "\u001b" && value[index + 1] === "[") {
+        index += 2;
+        while (index < value.length) {
+          const code = value.charCodeAt(index);
+          if (code >= 64 && code <= 126) {
+            break;
+          }
+          index += 1;
+        }
+        continue;
+      }
+      result += char;
+    }
+
+    return result;
+  }
   private isGatewayPortOpen(): Promise<boolean> {
     return new Promise((resolve) => {
       const socket = net.createConnection({

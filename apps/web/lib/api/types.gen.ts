@@ -429,6 +429,85 @@ export type GetApiInternalDesktopReadyResponses = {
 
 export type GetApiInternalDesktopReadyResponse = GetApiInternalDesktopReadyResponses[keyof GetApiInternalDesktopReadyResponses];
 
+export type GetApiInternalDesktopFallbackEventsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        limit?: number;
+    };
+    url: '/api/internal/desktop/fallback-events';
+};
+
+export type GetApiInternalDesktopFallbackEventsResponses = {
+    /**
+     * Recent channel fallback diagnostics
+     */
+    200: {
+        events: Array<{
+            id: string;
+            receivedAt: string;
+            channel: string;
+            status: string;
+            reasonCode: string;
+            accountId: string;
+            to: string;
+            threadId: string;
+            sessionKey: string;
+            actionId: string;
+            fallbackOutcome: 'sent' | 'skipped' | 'failed';
+            fallbackReason: string;
+            error: string;
+            sendResult: {
+                runId?: string;
+                messageId?: string;
+                channel?: string;
+                chatId?: string;
+                conversationId?: string;
+            };
+        }>;
+    };
+};
+
+export type GetApiInternalDesktopFallbackEventsResponse = GetApiInternalDesktopFallbackEventsResponses[keyof GetApiInternalDesktopFallbackEventsResponses];
+
+export type GetApiInternalDesktopPreferencesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/internal/desktop/preferences';
+};
+
+export type GetApiInternalDesktopPreferencesResponses = {
+    /**
+     * Desktop preferences
+     */
+    200: {
+        locale: 'en' | 'zh-CN';
+    };
+};
+
+export type GetApiInternalDesktopPreferencesResponse = GetApiInternalDesktopPreferencesResponses[keyof GetApiInternalDesktopPreferencesResponses];
+
+export type PatchApiInternalDesktopPreferencesData = {
+    body: {
+        locale: 'en' | 'zh-CN';
+    };
+    path?: never;
+    query?: never;
+    url: '/api/internal/desktop/preferences';
+};
+
+export type PatchApiInternalDesktopPreferencesResponses = {
+    /**
+     * Updated desktop preferences
+     */
+    200: {
+        locale: 'en' | 'zh-CN';
+    };
+};
+
+export type PatchApiInternalDesktopPreferencesResponse = PatchApiInternalDesktopPreferencesResponses[keyof PatchApiInternalDesktopPreferencesResponses];
+
 export type GetApiInternalDesktopCloudStatusData = {
     body?: never;
     path?: never;

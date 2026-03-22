@@ -15,6 +15,7 @@ import {
 import { WorkspaceTemplateWriter } from "../runtime/workspace-template-writer.js";
 import { AgentService } from "../services/agent-service.js";
 import { ArtifactService } from "../services/artifact-service.js";
+import { ChannelFallbackService } from "../services/channel-fallback-service.js";
 import { ChannelService } from "../services/channel-service.js";
 import { DesktopLocalService } from "../services/desktop-local-service.js";
 import { IntegrationService } from "../services/integration-service.js";
@@ -34,11 +35,13 @@ import { type ControllerEnv, env } from "./env.js";
 
 export interface ControllerContainer {
   env: ControllerEnv;
+  configStore: NexuConfigStore;
   gatewayClient: GatewayClient;
   runtimeHealth: RuntimeHealth;
   openclawProcess: OpenClawProcessManager;
   agentService: AgentService;
   channelService: ChannelService;
+  channelFallbackService: ChannelFallbackService;
   sessionService: SessionService;
   runtimeConfigService: RuntimeConfigService;
   runtimeModelStateService: RuntimeModelStateService;
@@ -52,7 +55,6 @@ export interface ControllerContainer {
   openclawSyncService: OpenClawSyncService;
   wsClient: OpenClawWsClient;
   gatewayService: OpenClawGatewayService;
-  configStore: NexuConfigStore;
   runtimeState: ControllerRuntimeState;
   startBackgroundLoops: () => () => void;
 }
@@ -73,6 +75,13 @@ export async function createContainer(): Promise<ControllerContainer> {
   const openclawProcess = new OpenClawProcessManager(env);
   const wsClient = new OpenClawWsClient(env);
   const gatewayService = new OpenClawGatewayService(wsClient);
+  const channelFallbackService = new ChannelFallbackService(
+    openclawProcess,
+    gatewayService,
+    {
+      getLocale: () => configStore.getDesktopLocale(),
+    },
+  );
   const openclawSyncService = new OpenClawSyncService(
     env,
     configStore,
@@ -104,6 +113,7 @@ export async function createContainer(): Promise<ControllerContainer> {
     openclawProcess,
     agentService: new AgentService(configStore, openclawSyncService),
     channelService: new ChannelService(configStore, openclawSyncService),
+    channelFallbackService,
     sessionService: new SessionService(sessionsRuntime),
     runtimeConfigService: new RuntimeConfigService(
       configStore,
@@ -134,6 +144,7 @@ export async function createContainer(): Promise<ControllerContainer> {
       return () => {
         stopHealthLoop();
         skillhubService.dispose();
+        channelFallbackService.stop();
         wsClient.stop();
       };
     },

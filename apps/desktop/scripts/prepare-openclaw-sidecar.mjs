@@ -1,5 +1,13 @@
 import { spawn } from "node:child_process";
-import { chmod, mkdir, readdir, rename, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +25,203 @@ import {
 const openclawRuntimeRoot = resolve(repoRoot, "openclaw-runtime");
 const openclawRuntimeNodeModules = resolve(openclawRuntimeRoot, "node_modules");
 const openclawRoot = resolve(openclawRuntimeNodeModules, "openclaw");
+const openclawRuntimePatchesRoot = resolve(
+  repoRoot,
+  "openclaw-runtime-patches",
+);
+const openclawPackagePatchRoot = resolve(
+  openclawRuntimePatchesRoot,
+  "openclaw",
+);
+const REPLY_OUTCOME_HELPER_SEARCH = `
+const sessionKey = ctx.SessionKey;
+	const startTime = diagnosticsEnabled ? Date.now() : 0;
+`.trim();
+const REPLY_OUTCOME_HELPER_REPLACEMENT = `
+const sessionKey = ctx.SessionKey;
+	const emitReplyOutcome = (status, reasonCode, error) => {
+		try {
+			console.log("NEXU_EVENT channel.reply_outcome " + JSON.stringify({
+				channel,
+				status,
+				reasonCode,
+				accountId: ctx.AccountId,
+				to: chatId,
+				chatId,
+				threadId: ctx.MessageThreadId,
+				replyToMessageId: messageId,
+				sessionKey,
+				messageId,
+				error,
+				ts: (/* @__PURE__ */ new Date()).toISOString()
+			}));
+		} catch {}
+	};
+	const startTime = diagnosticsEnabled ? Date.now() : 0;
+`.trim();
+const REPLY_OUTCOME_SILENT_SEARCH = `
+const counts = dispatcher.getQueuedCounts();
+		counts.final += routedFinalCount;
+		recordProcessed("completed");
+`.trim();
+const REPLY_OUTCOME_SILENT_REPLACEMENT = `
+const counts = dispatcher.getQueuedCounts();
+		counts.final += routedFinalCount;
+		if (!queuedFinal) emitReplyOutcome("silent", "no_final_reply");
+		recordProcessed("completed");
+`.trim();
+const REPLY_OUTCOME_ERROR_SEARCH = `
+recordProcessed("error", { error: String(err) });
+		markIdle("message_error");
+`.trim();
+const REPLY_OUTCOME_ERROR_REPLACEMENT = `
+emitReplyOutcome("failed", "dispatch_threw", err instanceof Error ? err.message : String(err));
+		recordProcessed("error", { error: String(err) });
+		markIdle("message_error");
+`.trim();
+const FEISHU_ERROR_REPLY_SUPPRESS_GUARD_SEARCH = `
+const genericErrorText = "The AI service returned an error. Please try again.";
+	const suppressErrorTextReply = params.messageChannel === "feishu" && lastAssistantErrored;
+	if (errorText && !suppressErrorTextReply) replyItems.push({
+`.trim();
+const FEISHU_ERROR_REPLY_SUPPRESS_GUARD_REPLACEMENT = `
+const genericErrorText = "The AI service returned an error. Please try again.";
+	const suppressErrorTextReply = (params.messageChannel === "feishu" || params.messageProvider === "feishu") && lastAssistantErrored;
+	if (errorText && !suppressErrorTextReply) replyItems.push({
+`.trim();
+const CORE_EMBEDDED_PAYLOAD_MESSAGE_CHANNEL_SEARCH = `
+toolResultFormat: resolvedToolResultFormat,
+					messageChannel: params.messageChannel,
+					suppressToolErrorWarnings: params.suppressToolErrorWarnings,
+					inlineToolResultsAllowed: false,
+`.trim();
+const CORE_EMBEDDED_PAYLOAD_MESSAGE_CHANNEL_REPLACEMENT = `
+toolResultFormat: resolvedToolResultFormat,
+					messageChannel: params.messageChannel,
+					messageProvider: params.messageProvider,
+					suppressToolErrorWarnings: params.suppressToolErrorWarnings,
+					inlineToolResultsAllowed: false,
+`.trim();
+const FEISHU_PRE_REPLY_FINAL_SEARCH = [
+  "defaultRuntime.error(`Embedded agent failed before reply: ${message}`);",
+  '\t\tconst trimmedMessage = (isTransientHttp ? sanitizeUserFacingText(message, { errorContext: true }) : message).replace(/\\.\\s*$/, "");',
+  "\t\treturn {",
+  '\t\t\tkind: "final",',
+  '\t\t\tpayload: { text: isContextOverflow ? "⚠️ Context overflow — prompt too large for this model. Try a shorter message or a larger-context model." : isRoleOrderingError ? "⚠️ Message ordering conflict - please try again. If this persists, use /new to start a fresh session." : `⚠️ Agent failed before reply: ${trimmedMessage}.\\nLogs: openclaw logs --follow` }',
+  "\t\t};",
+].join("\n");
+const FEISHU_PRE_REPLY_FINAL_REPLACEMENT = [
+  "defaultRuntime.error(`Embedded agent failed before reply: ${message}`);",
+  '\t\tconst trimmedMessage = (isTransientHttp ? sanitizeUserFacingText(message, { errorContext: true }) : message).replace(/\\.\\s*$/, "");',
+  '\t\tif (resolveMessageChannel(params.sessionCtx.Surface, params.sessionCtx.Provider) === "feishu") return {',
+  '\t\t\tkind: "success",',
+  "\t\t\trunId,",
+  "\t\t\trunResult: { payloads: [] },",
+  "\t\t\tfallbackProvider,",
+  "\t\t\tfallbackModel,",
+  "\t\t\tfallbackAttempts,",
+  "\t\t\tdidLogHeartbeatStrip,",
+  "\t\t\tautoCompactionCompleted,",
+  "\t\t\tdirectlySentBlockKeys: directlySentBlockKeys.size > 0 ? directlySentBlockKeys : void 0",
+  "\t\t};",
+  "\t\treturn {",
+  '\t\t\tkind: "final",',
+  '\t\t\tpayload: { text: isContextOverflow ? "⚠️ Context overflow — prompt too large for this model. Try a shorter message or a larger-context model." : isRoleOrderingError ? "⚠️ Message ordering conflict - please try again. If this persists, use /new to start a fresh session." : `⚠️ Agent failed before reply: ${trimmedMessage}.\\nLogs: openclaw logs --follow` }',
+  "\t\t};",
+].join("\n");
+const PLUGIN_SDK_BUNDLE_PATTERNS = [/^reply-.*\.js$/u, /^dispatch-.*\.js$/u];
+const CORE_DIST_REPLY_BUNDLE_PATTERNS = [/^reply-.*\.js$/u];
+const FEISHU_PRE_LLM_SINGLE_AGENT_SEARCH = `
+      // --- Single-agent dispatch (existing behavior) ---
+      const ctxPayload = buildCtxPayloadForAgent(
+`.trim();
+const FEISHU_PRE_LLM_SINGLE_AGENT_REPLACEMENT = [
+  "      // --- Single-agent dispatch (existing behavior) ---",
+  "      const ctxPayload = buildCtxPayloadForAgent(",
+  "        route.sessionKey,",
+  "        route.accountId,",
+  "        ctx.mentionedBot,",
+  "      );",
+  "      const syntheticFailureTriggerPrefix = process.env.NEXU_FEISHU_TEST_TRIGGER_PREFIX?.trim();",
+  "      if (syntheticFailureTriggerPrefix && ctx.content.includes(syntheticFailureTriggerPrefix)) {",
+  "        const syntheticInput = ctx.content.slice(ctx.content.indexOf(syntheticFailureTriggerPrefix) + syntheticFailureTriggerPrefix.length).trim();",
+  "        void core.channel.session.recordSessionMetaFromInbound({",
+  "          storePath,",
+  "          sessionKey: route.sessionKey,",
+  "          ctx: ctxPayload,",
+  "          createIfMissing: true,",
+  "        }).catch((err) => {",
+  "          runtime.error?.(`feishu[${account.accountId}]: synthetic pre-llm session meta failed: ${String(err)}`);",
+  "        });",
+  "        runtime.log?.(`NEXU_EVENT channel.reply_outcome ${JSON.stringify({",
+  '          channel: "feishu",',
+  '          status: "failed",',
+  '          reasonCode: "synthetic_pre_llm_failure",',
+  "          accountId: account.accountId,",
+  "          chatId: ctx.chatId,",
+  "          replyToMessageId: replyTargetMessageId,",
+  "          threadId: ctx.rootId,",
+  "          sessionKey: route.sessionKey,",
+  "          syntheticInput,",
+  '          error: "synthetic pre-llm failure",',
+  "          ts: new Date().toISOString(),",
+  "        })}`);",
+  "        log(",
+  "          `feishu[${account.accountId}]: synthetic pre-llm failure triggered (session=${route.sessionKey})`,",
+  "        );",
+  "        return;",
+  "      }",
+].join("\n");
+const LEGACY_FEISHU_TRIGGER_CALLSITE = `
+        accountId: account.accountId,
+        syntheticFailureTriggerText: ctx.content,
+        messageCreateTimeMs,
+`.trim();
+const LEGACY_FEISHU_TRIGGER_CALLSITE_REPLACEMENT = `
+        accountId: account.accountId,
+        messageCreateTimeMs,
+`.trim();
+const LEGACY_FEISHU_PRE_LLM_BLOCK = [
+  '                if (ctx.content.includes("__fail_reply__")) {',
+  "        runtime.log?.(`NEXU_EVENT channel.reply_outcome ${JSON.stringify({",
+  '          channel: "feishu",',
+  '          status: "failed",',
+  '          reasonCode: "synthetic_pre_llm_failure",',
+  "          accountId: account.accountId,",
+  "          chatId: ctx.chatId,",
+  "          replyToMessageId: replyTargetMessageId,",
+  "          threadId: ctx.rootId,",
+  "          sessionKey: route.sessionKey,",
+  '          error: "synthetic pre-llm failure",',
+  "          ts: new Date().toISOString(),",
+  "        })}`);",
+  "        log(",
+  "          `feishu[${account.accountId}]: synthetic pre-llm failure triggered (session=${route.sessionKey})`,",
+  "        );",
+  "        return;",
+  "      }",
+  "",
+].join("\n");
+const LEGACY_FEISHU_SINGLE_AGENT_TRIGGER_BLOCK = [
+  '      if (ctx.content.includes("__fail_reply__")) {',
+  "        runtime.log?.(`NEXU_EVENT channel.reply_outcome ${JSON.stringify({",
+  '          channel: "feishu",',
+  '          status: "failed",',
+  '          reasonCode: "synthetic_pre_llm_failure",',
+  "          accountId: account.accountId,",
+  "          chatId: ctx.chatId,",
+  "          replyToMessageId: replyTargetMessageId,",
+  "          threadId: ctx.rootId,",
+  "          sessionKey: route.sessionKey,",
+  '          error: "synthetic pre-llm failure",',
+  "          ts: new Date().toISOString(),",
+  "        })}`);",
+  "        log(",
+  "          `feishu[${account.accountId}]: synthetic pre-llm failure triggered (session=${route.sessionKey})`,",
+  "        );",
+  "        return;",
+  "      }",
+].join("\n");
 const sidecarRoot = getSidecarRoot("openclaw");
 const sidecarBinDir = resolve(sidecarRoot, "bin");
 const sidecarNodeModules = resolve(sidecarRoot, "node_modules");
@@ -292,12 +497,178 @@ async function signOpenclawNativeBinaries() {
   );
 }
 
+async function applyOpenclawRuntimePatches() {
+  if (!(await pathExists(openclawPackagePatchRoot))) {
+    return;
+  }
+
+  await cp(openclawPackagePatchRoot, openclawRoot, {
+    recursive: true,
+    force: true,
+  });
+  console.log(
+    `[openclaw-sidecar] applied runtime patches from ${openclawPackagePatchRoot}`,
+  );
+}
+
+function applyExactReplacement(source, search, replacement, label) {
+  if (!source.includes(search)) {
+    throw new Error(`Unable to locate patch anchor for ${label}.`);
+  }
+  return source.replace(search, replacement);
+}
+
+async function patchReplyOutcomeBridge() {
+  const feishuBotPath = resolve(
+    openclawRoot,
+    "extensions",
+    "feishu",
+    "src",
+    "bot.ts",
+  );
+  let feishuBotSource = await readFile(feishuBotPath, "utf8");
+
+  if (feishuBotSource.includes(LEGACY_FEISHU_PRE_LLM_BLOCK)) {
+    feishuBotSource = feishuBotSource.replaceAll(
+      LEGACY_FEISHU_PRE_LLM_BLOCK,
+      "",
+    );
+  }
+
+  if (feishuBotSource.includes(LEGACY_FEISHU_SINGLE_AGENT_TRIGGER_BLOCK)) {
+    feishuBotSource = feishuBotSource.replaceAll(
+      LEGACY_FEISHU_SINGLE_AGENT_TRIGGER_BLOCK,
+      FEISHU_PRE_LLM_SINGLE_AGENT_REPLACEMENT,
+    );
+  }
+
+  if (feishuBotSource.includes(LEGACY_FEISHU_TRIGGER_CALLSITE)) {
+    feishuBotSource = feishuBotSource.replaceAll(
+      LEGACY_FEISHU_TRIGGER_CALLSITE,
+      LEGACY_FEISHU_TRIGGER_CALLSITE_REPLACEMENT,
+    );
+  }
+
+  if (feishuBotSource.includes(FEISHU_PRE_LLM_SINGLE_AGENT_SEARCH)) {
+    feishuBotSource = feishuBotSource.replace(
+      FEISHU_PRE_LLM_SINGLE_AGENT_SEARCH,
+      FEISHU_PRE_LLM_SINGLE_AGENT_REPLACEMENT,
+    );
+    console.log(
+      "[openclaw-sidecar] patched feishu single-agent pre-llm trigger",
+    );
+  }
+
+  await writeFile(feishuBotPath, feishuBotSource, "utf8");
+
+  const patchBundleGroup = async (bundleDir, patterns, label) => {
+    const entries = await readdir(bundleDir);
+    const bundleNames = entries.filter((entry) =>
+      patterns.some((pattern) => pattern.test(entry)),
+    );
+
+    if (bundleNames.length === 0) {
+      throw new Error(`Unable to locate OpenClaw ${label} bundles.`);
+    }
+
+    for (const bundleName of bundleNames) {
+      const bundlePath = resolve(bundleDir, bundleName);
+      let source = await readFile(bundlePath, "utf8");
+
+      if (!source.includes("NEXU_EVENT channel.reply_outcome")) {
+        source = applyExactReplacement(
+          source,
+          REPLY_OUTCOME_HELPER_SEARCH,
+          REPLY_OUTCOME_HELPER_REPLACEMENT,
+          `${bundleName}: reply outcome helper`,
+        );
+
+        source = applyExactReplacement(
+          source,
+          REPLY_OUTCOME_SILENT_SEARCH,
+          REPLY_OUTCOME_SILENT_REPLACEMENT,
+          `${bundleName}: silent outcome emit`,
+        );
+
+        source = applyExactReplacement(
+          source,
+          REPLY_OUTCOME_ERROR_SEARCH,
+          REPLY_OUTCOME_ERROR_REPLACEMENT,
+          `${bundleName}: error outcome emit`,
+        );
+
+        console.log(
+          `[openclaw-sidecar] patched reply outcome bridge in ${bundleName}`,
+        );
+      }
+
+      if (source.includes(FEISHU_ERROR_REPLY_SUPPRESS_GUARD_SEARCH)) {
+        source = applyExactReplacement(
+          source,
+          FEISHU_ERROR_REPLY_SUPPRESS_GUARD_SEARCH,
+          FEISHU_ERROR_REPLY_SUPPRESS_GUARD_REPLACEMENT,
+          `${bundleName}: feishu error reply suppress guard`,
+        );
+
+        console.log(
+          `[openclaw-sidecar] patched feishu error final suppression in ${bundleName}`,
+        );
+      }
+
+      if (source.includes(CORE_EMBEDDED_PAYLOAD_MESSAGE_CHANNEL_SEARCH)) {
+        source = applyExactReplacement(
+          source,
+          CORE_EMBEDDED_PAYLOAD_MESSAGE_CHANNEL_SEARCH,
+          CORE_EMBEDDED_PAYLOAD_MESSAGE_CHANNEL_REPLACEMENT,
+          `${bundleName}: core embedded payload message provider`,
+        );
+
+        console.log(
+          `[openclaw-sidecar] patched embedded payload message provider in ${bundleName}`,
+        );
+      }
+
+      if (
+        !source.includes("runResult: { payloads: [] }") &&
+        source.includes(FEISHU_PRE_REPLY_FINAL_SEARCH)
+      ) {
+        source = applyExactReplacement(
+          source,
+          FEISHU_PRE_REPLY_FINAL_SEARCH,
+          FEISHU_PRE_REPLY_FINAL_REPLACEMENT,
+          `${bundleName}: feishu pre-reply final suppression`,
+        );
+
+        console.log(
+          `[openclaw-sidecar] patched feishu pre-reply final suppression in ${bundleName}`,
+        );
+      }
+
+      await writeFile(bundlePath, source, "utf8");
+    }
+  };
+
+  await patchBundleGroup(
+    resolve(openclawRoot, "dist", "plugin-sdk"),
+    PLUGIN_SDK_BUNDLE_PATTERNS,
+    "plugin-sdk reply/dispatch",
+  );
+  await patchBundleGroup(
+    resolve(openclawRoot, "dist"),
+    CORE_DIST_REPLY_BUNDLE_PATTERNS,
+    "core dist reply",
+  );
+}
+
 async function prepareOpenclawSidecar() {
   if (!(await pathExists(openclawRoot))) {
     throw new Error(
       `OpenClaw runtime dependency not found at ${openclawRoot}. Run pnpm openclaw-runtime:install first.`,
     );
   }
+
+  await applyOpenclawRuntimePatches();
+  await patchReplyOutcomeBridge();
 
   await resetDir(sidecarRoot);
   await mkdir(sidecarBinDir, { recursive: true });

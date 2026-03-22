@@ -31,6 +31,7 @@ export async function bootstrapController(
 
   container.openclawProcess.enableAutoRestart();
   container.openclawProcess.start();
+  container.channelFallbackService.start();
 
   // Start WS client — connects to OpenClaw gateway
   container.wsClient.connect();
