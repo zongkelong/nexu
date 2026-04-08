@@ -15,7 +15,11 @@ import {
   shell,
 } from "electron";
 import { getOpenclawSkillsDir } from "../shared/desktop-paths";
-import type { DesktopChromeMode, DesktopSurface } from "../shared/host";
+import type {
+  DesktopChromeMode,
+  DesktopSurface,
+  HostDesktopCommand,
+} from "../shared/host";
 import { buildChildProcessProxyEnv } from "../shared/proxy-config";
 import { getDesktopRuntimeConfig } from "../shared/runtime-config";
 import { getDesktopSentryBuildMetadata } from "../shared/sentry-build-metadata";
@@ -376,6 +380,10 @@ function sendDesktopCommand(
   });
 }
 
+function sendHostDesktopCommand(command: HostDesktopCommand): void {
+  mainWindow?.webContents.send("host:desktop-command", command);
+}
+
 function triggerUpdateCheck(): void {
   mainWindow?.webContents.send("host:desktop-command", {
     type: "desktop:check-for-updates",
@@ -409,6 +417,12 @@ function installApplicationMenu(): void {
       {
         label: "Show OpenClaw In Shell",
         click: () => sendDesktopCommand("openclaw", "full"),
+      },
+      { type: "separator" },
+      {
+        label: "Set Test Balance…",
+        click: () =>
+          sendHostDesktopCommand({ type: "develop:open-set-balance" }),
       },
     ],
   };

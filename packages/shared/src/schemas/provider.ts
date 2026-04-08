@@ -163,8 +163,15 @@ export const cloudProfileDeleteBodySchema = z.object({
   name: z.string().min(1),
 });
 
+export const cloudConnectBodySchema = z
+  .object({
+    source: z.string().min(1).optional(),
+  })
+  .optional();
+
 export const cloudProfileConnectBodySchema = z.object({
   name: z.string().min(1),
+  source: z.string().min(1).optional(),
 });
 
 export const cloudProfileDisconnectBodySchema = z.object({
