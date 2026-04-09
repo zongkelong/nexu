@@ -796,7 +796,6 @@ export class ChannelService {
       appId,
       botUserId: authData.user_id ?? null,
     });
-    await this.syncService.writePlatformTemplatesForBot(channel.botId);
     await this.syncService.syncAll();
     return channel;
   }
@@ -836,14 +835,12 @@ export class ChannelService {
       ...input,
       botUserId: userData.id ?? null,
     });
-    await this.syncService.writePlatformTemplatesForBot(channel.botId);
     await this.syncService.syncAll();
     return channel;
   }
 
   async connectWechat(accountId: string) {
     const channel = await this.configStore.connectWechat({ accountId });
-    await this.syncService.writePlatformTemplatesForBot(channel.botId);
     logger.info(
       {
         accountId,
@@ -995,7 +992,6 @@ export class ChannelService {
         payload.result.first_name?.trim() ||
         null,
     });
-    await this.syncService.writePlatformTemplatesForBot(channel.botId);
     await this.syncService.syncAll();
     return channel;
   }
@@ -1008,7 +1004,6 @@ export class ChannelService {
       appId,
       appSecret,
     });
-    await this.syncService.writePlatformTemplatesForBot(channel.botId);
     await this.syncService.syncAll();
     return channel;
   }
@@ -1022,7 +1017,6 @@ export class ChannelService {
       clientId,
       clientSecret,
     });
-    await this.syncService.writePlatformTemplatesForBot(channel.botId);
     await this.syncService.syncAll();
     return channel;
   }
@@ -1053,7 +1047,6 @@ export class ChannelService {
       botId,
       secret,
     });
-    await this.syncService.writePlatformTemplatesForBot(channel.botId);
     await this.syncService.syncAll();
     return channel;
   }
@@ -1266,7 +1259,6 @@ export class ChannelService {
       accountId,
       authDir: login.authDir,
     });
-    await this.syncService.writePlatformTemplatesForBot(channel.botId);
     await this.syncService.syncAll();
     await this.restartOpenClawForWhatsappLifecycle("whatsapp-connect");
     const readiness = await this.waitForWhatsappReady(
@@ -1311,7 +1303,6 @@ export class ChannelService {
     }
 
     const channel = await this.configStore.connectFeishu(input);
-    await this.syncService.writePlatformTemplatesForBot(channel.botId);
     await this.syncService.syncAll();
     return channel;
   }

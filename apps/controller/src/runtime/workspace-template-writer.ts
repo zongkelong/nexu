@@ -11,6 +11,15 @@ interface BotInfo {
 export class WorkspaceTemplateWriter {
   constructor(private readonly env: ControllerEnv) {}
 
+  /**
+   * Seed each active bot's workspace with platform docs (AGENTS.md,
+   * BOOTSTRAP.md, IDENTITY.md, SOUL.md, TOOLS.md, USER.md, HEARTBEAT.md).
+   *
+   * Strict seed-if-missing semantics: any file that already exists in the
+   * destination is left untouched. Agents edit these files at runtime
+   * (self-evolution), so re-writing would silently destroy state. Should
+   * therefore only need to be invoked once per bot, at creation time.
+   */
   async write(bots: BotInfo[]): Promise<void> {
     const activeBots = bots.filter((bot) => bot.status === "active");
     const sourceDir = this.env.platformTemplatesDir;
@@ -45,23 +54,38 @@ export class WorkspaceTemplateWriter {
 
     try {
       const entries = await readdir(sourceDir, { withFileTypes: true });
+      let seededCount = 0;
+      let preservedCount = 0;
 
       for (const entry of entries) {
         const sourcePath = path.join(sourceDir, entry.name);
         // Write directly to workspace root, not nexu-platform/ subdirectory
         const targetPath = path.join(workspaceDir, entry.name);
 
-        await cp(sourcePath, targetPath, { recursive: true, force: true });
+        // Strict seed-if-missing: never clobber agent-edited content.
+        // Agents read/write these files at runtime; force-overwriting would
+        // silently destroy self-evolution state.
+        if (await this.pathExists(targetPath)) {
+          preservedCount += 1;
+          continue;
+        }
+
+        await cp(sourcePath, targetPath, {
+          recursive: true,
+          force: false,
+          errorOnExist: false,
+        });
+        seededCount += 1;
       }
 
       logger.debug(
-        { botId, workspaceDir },
-        "copied platform templates to workspace root",
+        { botId, workspaceDir, seededCount, preservedCount },
+        "platform templates seed pass complete",
       );
     } catch (err) {
       logger.error(
         { botId, sourceDir, error: err instanceof Error ? err.message : err },
-        "failed to copy platform templates",
+        "failed to seed platform templates",
       );
     }
   }
@@ -70,6 +94,15 @@ export class WorkspaceTemplateWriter {
     try {
       const stats = await stat(dirPath);
       return stats.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  private async pathExists(filePath: string): Promise<boolean> {
+    try {
+      await stat(filePath);
+      return true;
     } catch {
       return false;
     }
