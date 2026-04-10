@@ -1,4 +1,5 @@
 import { GitHubStarCta } from "@/components/github-star-cta";
+import { ModelPickerDropdown } from "@/components/model-picker-dropdown";
 import { ModelLogo, ProviderLogo } from "@/components/provider-logo";
 import { useAutoUpdate } from "@/hooks/use-auto-update";
 import {
@@ -313,6 +314,31 @@ function getProviderIdFromModelId(
   }
   const [provider] = modelId.split("/");
   return provider || null;
+}
+
+export function getSettingsProviderSelectionIdForModel(
+  providerIds: string[],
+  models: Array<{ id: string; provider: string }>,
+  modelId: string,
+): string | null {
+  const providerId = getProviderIdFromModelId(models, modelId);
+  if (!providerId) {
+    return null;
+  }
+
+  const normalizedProviderId = normalizeProviderId(providerId) ?? providerId;
+  if (providerIds.includes(providerId)) {
+    return providerId;
+  }
+  if (providerIds.includes(normalizedProviderId)) {
+    return normalizedProviderId;
+  }
+
+  return (
+    providerIds.find((candidateId) =>
+      getProviderAliasCandidates(candidateId).includes(providerId),
+    ) ?? normalizedProviderId
+  );
 }
 
 type SettingsTab = "general" | "providers";
@@ -1000,7 +1026,7 @@ function _GeneralSettings() {
               </div>
             </div>
             <Switch
-              checked={desktopPreferences?.analyticsEnabled ?? false}
+              checked={desktopPreferences?.analyticsEnabled ?? true}
               disabled={updateDesktopPreferences.isPending}
               onCheckedChange={(checked) => {
                 void updateDesktopPreferences.mutateAsync({
@@ -1833,50 +1859,28 @@ export function ModelsPage() {
                     </div>
                   </div>
                 </div>
-                <Select
-                  value={activeProvider?.id}
-                  onValueChange={(value) => {
-                    setSelectedProviderId(value);
+                <ModelPickerDropdown
+                  compact
+                  dropdownAlign="end"
+                  models={models}
+                  currentModelId={currentModelId}
+                  emptyLabel={t("models.noModelConfigured")}
+                  onSelectModel={(modelId) => {
+                    const providerId = getSettingsProviderSelectionIdForModel(
+                      sidebarItems.map((item) => item.id),
+                      models,
+                      modelId,
+                    );
+                    if (providerId) {
+                      setSelectedProviderId(providerId);
+                    }
                     clearSetupParam();
+                    updateModel.mutate(modelId);
                   }}
-                >
-                  <SelectTrigger className="inline-flex h-auto w-[180px] items-center gap-2 rounded-lg border-border bg-surface-0 px-3 py-1.5 text-[12px] font-medium text-text-primary shadow-none hover:bg-surface-1">
-                    {activeProvider ? (
-                      <div className="flex min-w-0 items-center gap-2">
-                        <ProviderLogo
-                          provider={
-                            activeProvider.registryEntry?.id ??
-                            activeProvider.id
-                          }
-                          size={14}
-                        />
-                        <span className="truncate">{activeProvider.name}</span>
-                      </div>
-                    ) : (
-                      <span>{t("models.selectProvider")}</span>
-                    )}
-                  </SelectTrigger>
-                  <SelectContent
-                    align="end"
-                    className="rounded-xl border-border bg-surface-0 text-text-primary shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
-                  >
-                    {sidebarItems.map((item) => (
-                      <SelectItem
-                        key={item.id}
-                        value={item.id}
-                        className="rounded-lg px-3 py-2 text-[12px] text-text-secondary focus:bg-surface-2 focus:text-text-primary data-[state=checked]:bg-surface-2 data-[state=checked]:text-text-primary"
-                      >
-                        <div className="flex min-w-0 items-center gap-2">
-                          <ProviderLogo
-                            provider={item.registryEntry?.id ?? item.id}
-                            size={14}
-                          />
-                          <span className="truncate">{item.name}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  className="shrink-0"
+                  triggerClassName="min-w-[220px] justify-between"
+                  dropdownClassName="shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
+                />
               </div>
             </div>
 
