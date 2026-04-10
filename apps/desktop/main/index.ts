@@ -1124,6 +1124,15 @@ function updateSystemTrayMenu(): void {
   );
 }
 
+function showSystemTrayMenu(): void {
+  if (!systemTray) {
+    return;
+  }
+
+  updateSystemTrayMenu();
+  systemTray.popUpContextMenu();
+}
+
 function showMainWindowFromResidentEntry(): void {
   const preferences = getDesktopShellPreferences();
 
@@ -1146,6 +1155,14 @@ function showMainWindowFromResidentEntry(): void {
 function destroyResidentTray(): void {
   residentTray?.destroy();
   residentTray = null;
+}
+
+function showResidentTrayMenu(): void {
+  if (!residentTray) {
+    return;
+  }
+
+  residentTray.popUpContextMenu();
 }
 
 function ensureResidentTray(): void {
@@ -1197,7 +1214,10 @@ function ensureResidentTray(): void {
     ]),
   );
   tray.on("click", () => {
-    showMainWindowFromResidentEntry();
+    showResidentTrayMenu();
+  });
+  tray.on("right-click", () => {
+    showResidentTrayMenu();
   });
 }
 
@@ -1218,16 +1238,11 @@ async function ensureWindowsTray(): Promise<void> {
   updateSystemTrayMenu();
 
   systemTray.on("click", () => {
-    if (mainWindow?.isVisible()) {
-      hideMainWindowToBackground();
-      return;
-    }
-
-    showMainWindowFromResidentEntry();
+    showSystemTrayMenu();
   });
 
   systemTray.on("right-click", () => {
-    updateSystemTrayMenu();
+    showSystemTrayMenu();
   });
 }
 
