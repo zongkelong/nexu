@@ -9,7 +9,7 @@
  * - Single-channel readiness check
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { OpenClawConfig } from "@nexu/shared";
 import { logger } from "../lib/logger.js";
 import { serializeOpenClawConfig } from "../lib/openclaw-config-serialization.js";
@@ -257,6 +257,80 @@ export class OpenClawGatewayService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Send a message to an agent's main session via the `chat.send` RPC.
+   *
+   * `send` is for outbound bot→user delivery; `chat.send` is the right RPC
+   * for injecting a user message into an agent session directly (no channel).
+   * Required by OpenClaw schema: sessionKey + message + idempotencyKey.
+   * Images/files are passed via the `attachments` array.
+   *
+   * Multipart support: when `attachments` is provided the caller controls the
+   * full attachments list and the `message` field carries the text portion.
+   * When only `messageType === "image"` is set (legacy single-image path),
+   * the image data is in `message` and is moved to attachments automatically.
+   */
+  async sendToMainSession(input: {
+    botId: string;
+    sessionKey: string;
+    message: string;
+    messageType?: "text" | "image" | "video" | "audio" | "file";
+    metadata?: Record<string, unknown>;
+    /** Pre-built attachments list for multipart messages */
+    attachments?: Array<{
+      type: "image" | "file";
+      data: string;
+      mimeType?: string;
+      filename?: string;
+    }>;
+  }): Promise<{ messageId?: string; content?: unknown }> {
+    const idempotencyKey = randomUUID();
+
+    // Normalise caller attachments to a plain array (never undefined here).
+    const callerAttachments = input.attachments ?? [];
+
+    // Legacy single-image path: image data lives in message field (no attachments list).
+    const isLegacyImage =
+      input.messageType === "image" && callerAttachments.length === 0;
+
+    // Build the RPC attachments array.
+    let rpcAttachments: Array<Record<string, unknown>> | undefined;
+    if (isLegacyImage) {
+      rpcAttachments = [
+        {
+          type: "image",
+          data: input.message,
+          ...(input.metadata?.mimeType
+            ? { mimeType: input.metadata.mimeType }
+            : {}),
+        },
+      ];
+    } else if (callerAttachments.length > 0) {
+      rpcAttachments = callerAttachments.map((a) => ({
+        type: a.type,
+        data: a.data,
+        ...(a.mimeType ? { mimeType: a.mimeType } : {}),
+        ...(a.filename ? { filename: a.filename } : {}),
+      }));
+    }
+
+    // Text field: empty for legacy image-only, otherwise pass through.
+    const rpcMessage = isLegacyImage ? "" : input.message;
+
+    return this.wsClient.request(
+      "chat.send",
+      {
+        sessionKey: input.sessionKey,
+        message: rpcMessage,
+        ...(rpcAttachments ? { attachments: rpcAttachments } : {}),
+        idempotencyKey,
+      },
+      // Give the agent up to 120 s to reply; the WS frame timeout is a bit
+      // longer so the RPC itself doesn't time out before OpenClaw does.
+      { timeoutMs: 130_000 },
+    );
   }
 
   async logoutChannelAccount(

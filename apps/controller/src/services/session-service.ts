@@ -53,6 +53,10 @@ export class SessionService {
     return this.sessionsRuntime.deleteSession(id);
   }
 
+  async getSessionBySessionKey(botId: string, sessionKey: string) {
+    return this.sessionsRuntime.getSessionBySessionKey(botId, sessionKey);
+  }
+
   async getChatHistory(id: string, limit?: number) {
     return this.sessionsRuntime.getChatHistory(id, limit);
   }

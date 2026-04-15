@@ -1759,12 +1759,28 @@ app.whenReady().then(async () => {
         logColdStart("openclaw sidecar extraction complete");
       }
 
-      logColdStart(
-        `bootstrap mode: ${useLaunchdMode ? "launchd" : "orchestrator"}`,
-      );
+      const coldStartMode = useLaunchdMode
+        ? "launchd"
+        : baseRuntimeConfig.runtimeMode === "external"
+          ? "external"
+          : "orchestrator";
+      logColdStart(`bootstrap mode: ${coldStartMode}`);
 
       if (useLaunchdMode) {
         await runLaunchdColdStart();
+      } else if (baseRuntimeConfig.runtimeMode === "external") {
+        // External mode: pnpm dev services (controller, web, openclaw) are
+        // already running; just wait for controller to be ready and attach.
+        diagnosticsReporter?.markColdStartRunning(
+          "attaching to external runtime",
+        );
+        logColdStart("attaching to external runtime");
+        logColdStart("waiting for external controller readiness");
+        await waitForControllerReadiness();
+        const sessionId = rotateDesktopLogSession();
+        logColdStart(`cold start session ready sessionId=${sessionId}`);
+        logColdStart("cold start complete");
+        diagnosticsReporter?.markColdStartSucceeded();
       } else {
         await runDesktopColdStart();
       }

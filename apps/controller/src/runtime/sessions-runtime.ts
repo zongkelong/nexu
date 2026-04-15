@@ -20,7 +20,14 @@ import type {
   UpdateSessionInput,
 } from "@nexu/shared";
 import type { ControllerEnv } from "../app/env.js";
+import { logger } from "../lib/logger.js";
 import { proxyFetch } from "../lib/proxy-fetch.js";
+
+/**
+ * Agent names that are built into OpenClaw and must not appear as Nexu bots.
+ * The "main" agent is the OpenClaw default; add others here if they emerge.
+ */
+const OPENCLAW_RESERVED_AGENT_NAMES = new Set(["main"]);
 
 export type ChatMessage = {
   id: string;
@@ -174,6 +181,13 @@ export class SessionsRuntime {
 
       for (const agentEntry of agentEntries) {
         if (!agentEntry.isDirectory()) {
+          continue;
+        }
+
+        // Skip OpenClaw built-in agents — they are not Nexu bots and their
+        // sessions (e.g. from openclaw-control-ui) must not appear in the
+        // Nexu session list.
+        if (OPENCLAW_RESERVED_AGENT_NAMES.has(agentEntry.name)) {
           continue;
         }
 
@@ -422,7 +436,10 @@ export class SessionsRuntime {
     if (!session) {
       return { messages: [], sessionKey: null };
     }
-    const filePath = this.getSessionFilePath(session.botId, session.sessionKey);
+    const filePath = await this.resolveSessionFilePath(
+      session.botId,
+      session.sessionKey,
+    );
     return {
       messages: await this.readMessages(
         filePath,
@@ -442,7 +459,10 @@ export class SessionsRuntime {
     if (!session) {
       return { messages: [], sessionKey: null };
     }
-    const filePath = this.getSessionFilePath(session.botId, session.sessionKey);
+    const filePath = await this.resolveSessionFilePath(
+      session.botId,
+      session.sessionKey,
+    );
     return {
       messages: await this.readMessages(
         filePath,
@@ -899,6 +919,47 @@ export class SessionsRuntime {
     return sessions.find((session) => session.id === id) ?? null;
   }
 
+  /**
+   * Look up a session by its OpenClaw sessionKey without pre-creating it.
+   *
+   * Reads sessions.json to find the UUID that OpenClaw assigned to this
+   * sessionKey, then fetches the session from the full sessions list.
+   * Returns null if OpenClaw has not yet created a session for this key.
+   */
+  async getSessionBySessionKey(
+    botId: string,
+    sessionKey: string,
+  ): Promise<SessionResponse | null> {
+    const sessionsDir = path.join(
+      this.env.openclawStateDir,
+      "agents",
+      botId,
+      "sessions",
+    );
+    const index = await this.readSessionsIndex(sessionsDir);
+    const entry = index[sessionKey];
+    if (!entry) {
+      return null;
+    }
+    // Find the UUID file id (sessions.json stores sessionFile or sessionId).
+    // Use path.basename on both fields to strip any path traversal attempts.
+    let sessionFileId: string | null = null;
+    if (typeof entry.sessionFile === "string" && entry.sessionFile.trim()) {
+      sessionFileId = path.basename(entry.sessionFile);
+    } else if (typeof entry.sessionId === "string" && entry.sessionId.trim()) {
+      sessionFileId = `${path.basename(entry.sessionId)}.jsonl`;
+    }
+    if (!sessionFileId) {
+      return null;
+    }
+    const sessions = await this.listSessions();
+    return (
+      sessions.find(
+        (session) => session.id === sessionFileId && session.botId === botId,
+      ) ?? null
+    );
+  }
+
   private async getSessionByKey(
     botId: string,
     sessionKey: string,
@@ -920,6 +981,62 @@ export class SessionsRuntime {
       "sessions",
       `${sessionKey}.jsonl`,
     );
+  }
+
+  /**
+   * Resolve the actual JSONL file path for a session.
+   *
+   * OpenClaw stores conversation history in UUID-named files
+   * (e.g. `sessions/{uuid}.jsonl`), but its `sessions.json` index maps
+   * sessionKey → `{ sessionId, sessionFile, … }`.  When the sessionKey is a
+   * "named" key (like `agent:{id}:main`), the key-based path will be empty
+   * because OpenClaw never writes to it — it writes to the UUID path instead.
+   *
+   * Algorithm:
+   * 1. Read sessions.json from the agent's sessions directory.
+   * 2. If the index has an entry for this sessionKey with a `sessionFile` or
+   *    `sessionId`, return that path — after verifying it stays within the
+   *    expected state directory (path traversal guard).
+   * 3. Otherwise fall back to the legacy key-based path.
+   */
+  private async resolveSessionFilePath(
+    botId: string,
+    sessionKey: string,
+  ): Promise<string> {
+    const sessionsDir = path.join(
+      this.env.openclawStateDir,
+      "agents",
+      botId,
+      "sessions",
+    );
+    const index = await this.readSessionsIndex(sessionsDir);
+    const entry = index[sessionKey];
+
+    if (entry) {
+      // Prefer the explicit sessionFile field if present
+      if (typeof entry.sessionFile === "string" && entry.sessionFile.trim()) {
+        const resolved = path.resolve(entry.sessionFile);
+        // Guard: resolved path must stay inside openclawStateDir to prevent
+        // path traversal attacks via a malicious sessions.json entry.
+        const stateDir = path.resolve(this.env.openclawStateDir);
+        if (resolved.startsWith(stateDir + path.sep) || resolved === stateDir) {
+          return resolved;
+        }
+        // Suspicious path — fall through to safe alternatives
+        logger.warn(
+          { botId, sessionKey, resolved, stateDir },
+          "resolveSessionFilePath: sessionFile escapes openclawStateDir, ignoring",
+        );
+      }
+      // Fall back to constructing from sessionId — basename only, no traversal
+      if (typeof entry.sessionId === "string" && entry.sessionId.trim()) {
+        const sessionId = path.basename(entry.sessionId); // strip any dirs
+        return path.join(sessionsDir, `${sessionId}.jsonl`);
+      }
+    }
+
+    // Legacy fallback: {sessionKey}.jsonl
+    return this.getSessionFilePath(botId, sessionKey);
   }
 
   private async readSessionsIndex(

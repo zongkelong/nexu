@@ -125,6 +125,7 @@ const en = {
   "layout.nav.deployments": "Deployments",
   "layout.nav.skills": "Skills",
   "layout.nav.settings": "Settings",
+  "layout.nav.localChat": "Chat",
   "layout.conversations": "Conversations",
   "layout.signOut": "Sign out",
   "layout.help.title": "Help",
@@ -1242,6 +1243,25 @@ const en = {
   "common.loading": "Loading...",
   "common.connect": "Connect",
   "common.disconnect": "Disconnect",
+
+  // ── Local Chat ──
+  "localChat.title": "Local Chat",
+  "localChat.subtitle": "Chat directly with your AI bot",
+  "localChat.selectBot": "Select a bot",
+  "localChat.noBots": "No active bots yet",
+  "localChat.selectBotFirst": "Select a bot above to start chatting",
+  "localChat.waiting": "Waiting for reply…",
+  "localChat.inputPlaceholder":
+    "Type a message… (Enter to send, Shift+Enter for newline)",
+  "localChat.attachFile": "Attach image or file",
+  "localChat.removeAttachment": "Remove",
+  "localChat.startChat": "Chat with {{name}}",
+  "localChat.pickBot": "Pick a bot to get started",
+  "localChat.emptyHint": "Select a bot, then type a message below",
+  "localChat.selectChannel": "Channel",
+  "localChat.channel.webchat": "WebChat",
+  "localChat.channel.feishu": "Feishu (test)",
+  "localChat.channel.wechat": "WeChat (test)",
 } as const;
 
 export default en;
