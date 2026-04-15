@@ -423,10 +423,14 @@ export type GetApiInternalDesktopReadyResponses = {
      */
     200: {
         ready: boolean;
+        coreReady: boolean;
+        degraded: boolean;
+        bootPhase: 'preparing' | 'starting-managed-runtime' | 'attaching-external-runtime' | 'reconciling-runtime' | 'stabilizing-runtime' | 'ready';
         workspacePath: string;
-        runtime: {
+        controlPlane: {
             ok: boolean;
-            status: number;
+            phase: 'disconnected' | 'connecting' | 'ready' | 'degraded';
+            wsConnected: boolean;
         };
         status: 'active' | 'starting' | 'degraded' | 'unhealthy';
     };
@@ -3688,6 +3692,27 @@ export type PostApiV1SkillhubUninstallResponses = {
 };
 
 export type PostApiV1SkillhubUninstallResponse = PostApiV1SkillhubUninstallResponses[keyof PostApiV1SkillhubUninstallResponses];
+
+export type PostApiV1SkillhubCancelData = {
+    body?: {
+        slug: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/skillhub/cancel';
+};
+
+export type PostApiV1SkillhubCancelResponses = {
+    /**
+     * Cancel or dismiss a queued / failed install
+     */
+    200: {
+        ok: boolean;
+        cancelled: boolean;
+    };
+};
+
+export type PostApiV1SkillhubCancelResponse = PostApiV1SkillhubCancelResponses[keyof PostApiV1SkillhubCancelResponses];
 
 export type PostApiV1SkillhubRefreshData = {
     body?: never;

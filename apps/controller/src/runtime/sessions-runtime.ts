@@ -77,6 +77,15 @@ type SessionsIndexEntry = {
     label?: string;
   };
 };
+type OpenAiUserSessionContext = {
+  channel?: string;
+  accountid?: string;
+  chattype?: string;
+  peerid?: string;
+  conversationid?: string;
+  sendername?: string;
+  groupsubject?: string;
+};
 type ControllerConfigRecord = {
   channels?: Array<{
     id?: string;
@@ -1057,7 +1066,7 @@ export class SessionsRuntime {
     filePath: string,
     sessionKey: string,
   ): SessionHints {
-    const entry = Object.values(index).find((item) => {
+    const matched = Object.entries(index).find(([, item]) => {
       if (item.sessionId === sessionKey) {
         return true;
       }
@@ -1067,18 +1076,53 @@ export class SessionsRuntime {
       return false;
     });
 
-    if (!entry) {
+    if (!matched) {
       return {};
     }
 
-    const rawChannel = entry.lastChannel ?? entry.origin?.provider ?? undefined;
-    const channelType = this.normalizeInferredChannelType(rawChannel);
-    const senderName = entry.origin?.label;
+    const [indexKey, entry] = matched;
+    const openAiUserContext = this.parseOpenAiUserSessionContext(indexKey);
+    const rawChannel =
+      openAiUserContext?.channel ??
+      entry.lastChannel ??
+      entry.origin?.provider ??
+      undefined;
+    const normalizedChannel = this.normalizeInferredChannelType(rawChannel);
+    const channelType =
+      normalizedChannel === "dingtalk-connector"
+        ? "dingtalk"
+        : normalizedChannel;
+    const senderName =
+      openAiUserContext?.sendername ?? entry.origin?.label ?? undefined;
+    const groupName = openAiUserContext?.groupsubject ?? undefined;
 
     return {
       senderName,
+      groupName,
       channelType,
     };
+  }
+
+  private parseOpenAiUserSessionContext(
+    indexKey: string,
+  ): OpenAiUserSessionContext | null {
+    const marker = ":openai-user:";
+    const markerIndex = indexKey.indexOf(marker);
+    if (markerIndex === -1) {
+      return null;
+    }
+
+    const rawContext = indexKey.slice(markerIndex + marker.length).trim();
+    if (!rawContext.startsWith("{")) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(rawContext) as OpenAiUserSessionContext;
+      return typeof parsed === "object" && parsed !== null ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 
   private async readSessionMetadata(
@@ -1310,6 +1354,9 @@ export class SessionsRuntime {
     const normalized = channelType.trim().toLowerCase();
     if (normalized === "wechat") {
       return "openclaw-weixin";
+    }
+    if (normalized === "dingtalk-connector") {
+      return "dingtalk";
     }
 
     return normalized || undefined;

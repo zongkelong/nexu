@@ -121,28 +121,30 @@ const baseRuntimeConfig = getDesktopRuntimeConfig(process.env, {
 });
 const runtimePlatformAdapter =
   getDesktopRuntimePlatformAdapter(baseRuntimeConfig);
+const useExternalRuntime = baseRuntimeConfig.runtimeMode === "external";
 // In launchd mode, skip port probing — the bootstrap has its own port
 // recovery via runtime-ports.json and handles leftover processes gracefully.
 // Probing here would waste time and the results get overridden by attach anyway.
-const useLaunchdMode = isLaunchdBootstrapEnabled();
+const useLaunchdMode = !useExternalRuntime && isLaunchdBootstrapEnabled();
 const runtimeLifecycle = runtimePlatformAdapter.lifecycle;
-const { allocations: runtimePortAllocations, runtimeConfig } = useLaunchdMode
-  ? {
-      allocations: [] as PortAllocation[],
-      runtimeConfig: baseRuntimeConfig,
-    }
-  : await allocateDesktopRuntimePorts(process.env, baseRuntimeConfig).catch(
-      (error: unknown) => {
-        if (error instanceof PortAllocationError) {
-          throw new Error(
-            `[desktop:ports] ${error.code} purpose=${error.purpose} ` +
-              `preferredPort=${error.preferredPort ?? "n/a"} ${error.message}`,
-          );
-        }
+const { allocations: runtimePortAllocations, runtimeConfig } =
+  useLaunchdMode || useExternalRuntime
+    ? {
+        allocations: [] as PortAllocation[],
+        runtimeConfig: baseRuntimeConfig,
+      }
+    : await allocateDesktopRuntimePorts(process.env, baseRuntimeConfig).catch(
+        (error: unknown) => {
+          if (error instanceof PortAllocationError) {
+            throw new Error(
+              `[desktop:ports] ${error.code} purpose=${error.purpose} ` +
+                `preferredPort=${error.preferredPort ?? "n/a"} ${error.message}`,
+            );
+          }
 
-        throw error;
-      },
-    );
+          throw error;
+        },
+      );
 
 const pendingUserDataMigration =
   app.isPackaged && process.platform === "win32"
@@ -1759,14 +1761,23 @@ app.whenReady().then(async () => {
         logColdStart("openclaw sidecar extraction complete");
       }
 
-      const coldStartMode = useLaunchdMode
-        ? "launchd"
-        : baseRuntimeConfig.runtimeMode === "external"
-          ? "external"
-          : "orchestrator";
-      logColdStart(`bootstrap mode: ${coldStartMode}`);
+      logColdStart(
+        `bootstrap mode: ${useExternalRuntime ? "external" : useLaunchdMode ? "launchd" : "orchestrator"}`,
+      );
 
-      if (useLaunchdMode) {
+      if (useExternalRuntime) {
+        await runtimeLifecycle.coldStartOrAttach({
+          app,
+          electronRoot,
+          runtimeConfig,
+          orchestrator,
+          diagnosticsReporter,
+          logColdStart,
+          logStartupStep: logLaunchTimeline,
+          rotateDesktopLogSession,
+          waitForControllerReadiness,
+        });
+      } else if (useLaunchdMode) {
         await runLaunchdColdStart();
       } else if (baseRuntimeConfig.runtimeMode === "external") {
         // External mode: pnpm dev services (controller, web, openclaw) are

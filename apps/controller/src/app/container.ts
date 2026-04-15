@@ -1,4 +1,5 @@
 import { logger } from "../lib/logger.js";
+import { ControlPlaneHealthService } from "../runtime/control-plane-health.js";
 import { CreditGuardStateWriter } from "../runtime/credit-guard-state-writer.js";
 import { GatewayClient } from "../runtime/gateway-client.js";
 import { startHealthLoop } from "../runtime/loops.js";
@@ -7,12 +8,11 @@ import { OpenClawAuthProfilesStore } from "../runtime/openclaw-auth-profiles-sto
 import { OpenClawAuthProfilesWriter } from "../runtime/openclaw-auth-profiles-writer.js";
 import { OpenClawConfigWriter } from "../runtime/openclaw-config-writer.js";
 import { OpenClawProcessManager } from "../runtime/openclaw-process.js";
-import { OpenClawRuntimeModelWriter } from "../runtime/openclaw-runtime-model-writer.js";
-import { OpenClawRuntimePluginWriter } from "../runtime/openclaw-runtime-plugin-writer.js";
 import { OpenClawWatchTrigger } from "../runtime/openclaw-watch-trigger.js";
 import { OpenClawWsClient } from "../runtime/openclaw-ws-client.js";
-import { RuntimeHealth } from "../runtime/runtime-health.js";
 import { SessionsRuntime } from "../runtime/sessions-runtime.js";
+import { OpenClawRuntimeModelWriter } from "../runtime/slimclaw-runtime-model-writer.js";
+import { OpenClawRuntimePluginWriter } from "../runtime/slimclaw-runtime-plugin-writer.js";
 import {
   type ControllerRuntimeState,
   createRuntimeState,
@@ -46,7 +46,7 @@ export interface ControllerContainer {
   env: ControllerEnv;
   configStore: NexuConfigStore;
   gatewayClient: GatewayClient;
-  runtimeHealth: RuntimeHealth;
+  controlPlaneHealth: ControlPlaneHealthService;
   openclawProcess: OpenClawProcessManager;
   agentService: AgentService;
   channelService: ChannelService;
@@ -90,14 +90,22 @@ export async function createContainer(): Promise<ControllerContainer> {
   const runtimeModelWriter = new OpenClawRuntimeModelWriter(env);
   const creditGuardStateWriter = new CreditGuardStateWriter(env);
   const templateWriter = new WorkspaceTemplateWriter(env);
-  const watchTrigger = new OpenClawWatchTrigger(env);
   const gatewayClient = new GatewayClient(env);
   const sessionsRuntime = new SessionsRuntime(env);
-  const runtimeHealth = new RuntimeHealth(env);
   const runtimeState = createRuntimeState();
+  // Construct openclawProcess before watchTrigger so the watch trigger can
+  // delegate gateway restarts to OpenClawProcessManager.restart() instead of
+  // re-implementing the dev-vs-launchd branching inline.
   const openclawProcess = new OpenClawProcessManager(env);
+  const watchTrigger = new OpenClawWatchTrigger(env, openclawProcess);
   const wsClient = new OpenClawWsClient(env);
   const gatewayService = new OpenClawGatewayService(wsClient, runtimeState);
+  const controlPlaneHealth = new ControlPlaneHealthService(
+    gatewayService,
+    wsClient,
+    runtimeState,
+    openclawProcess,
+  );
   const channelFallbackService = new ChannelFallbackService(
     openclawProcess,
     gatewayService,
@@ -152,21 +160,26 @@ export async function createContainer(): Promise<ControllerContainer> {
   );
   const githubStarVerificationService = new GithubStarVerificationService();
 
-  // Wire cloud state change callback to sync refreshed cloud inventory without
-  // auto-switching the default model during startup or first-channel connect.
-  configStore.onCloudStateChanged = async (change) => {
+  configStore.onCloudStateChanged = async (_change) => {
+    // Auto-select a valid default model: on login, pick a managed model;
+    // on logout, fall back to any remaining BYOK/OAuth model (or leave
+    // cleared, which surfaces the explicit no-model guidance).
+    await modelProviderService.ensureValidDefaultModel();
     await openclawSyncService.syncAll();
-    if (!change.hadCloudInventory && change.hasCloudInventory) {
-      await openclawProcess.stop();
-      openclawProcess.enableAutoRestart();
-      openclawProcess.start();
-    }
+    // Restart the gateway on every login/logout.  Provider-level changes
+    // are not hot-reload-safe: OpenClaw builds its provider/model registry
+    // once at boot, so without a restart the old providers map stays
+    // resident in memory and the runtime keeps resolving to stale entries
+    // (e.g. link/*) after disconnect, or reports "Unknown model" after a
+    // fresh login because the registry never saw the new providers map.
+    // `restart()` handles both dev-managed and launchd-managed modes.
+    await openclawProcess.restart("cloud_state_changed");
   };
 
   return {
     env,
     gatewayClient,
-    runtimeHealth,
+    controlPlaneHealth,
     openclawProcess,
     agentService: new AgentService(configStore, openclawSyncService),
     channelService: new ChannelService(
@@ -175,7 +188,7 @@ export async function createContainer(): Promise<ControllerContainer> {
       openclawSyncService,
       gatewayService,
       openclawProcess,
-      runtimeHealth,
+      controlPlaneHealth,
       wsClient,
       quotaFallbackService,
     ),
@@ -211,7 +224,7 @@ export async function createContainer(): Promise<ControllerContainer> {
       const stopHealthLoop = startHealthLoop({
         env,
         state: runtimeState,
-        runtimeHealth,
+        controlPlaneHealth,
         processManager: openclawProcess,
         wsClient,
       });

@@ -15,6 +15,11 @@ import net, { createConnection } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
+import {
+  getSlimclawRuntimeRoot,
+  resolveSlimclawRuntimeArtifacts,
+  resolveSlimclawRuntimePaths,
+} from "@nexu/slimclaw";
 
 const execFileAsync = promisify(execFile);
 import { getWorkspaceRoot } from "../../shared/workspace-paths";
@@ -183,7 +188,7 @@ async function ensureLogDir(nexuHome?: string): Promise<string> {
  */
 async function waitForControllerReadiness(
   port: number,
-  timeoutMs = 15000,
+  timeoutMs = 30_000,
 ): Promise<void> {
   const startedAt = Date.now();
   let attempt = 0;
@@ -512,6 +517,60 @@ async function findFreePort(preferred: number): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
+// User shell PATH resolution — fix $PATH for GUI-launched Electron apps
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the user's real login-shell PATH.
+ *
+ * GUI-launched Electron apps on macOS inherit a minimal PATH
+ * (`/usr/bin:/bin:/usr/sbin:/sbin`) because launchd does not source the
+ * user's shell profile. This means Homebrew, NVM, pyenv, etc. binaries
+ * are invisible to child processes — including OpenClaw, which uses
+ * `hasBinary()` to filter skills by `metadata.openclaw.requires.bins`.
+ *
+ * Windows GUI apps already inherit the full user PATH from the registry,
+ * so this is a no-op on win32.
+ *
+ * Falls back to `process.env.PATH` on any error (timeout, missing shell).
+ */
+async function resolveUserShellPath(): Promise<string> {
+  const fallback = process.env.PATH ?? "";
+
+  if (process.platform === "win32") {
+    return fallback;
+  }
+
+  // Print PATH on a single tagged line so we can find it reliably even
+  // if shell init files (.zshrc, .bashrc) emit debug output around it.
+  // We search stdout for the one line starting with the tag prefix and
+  // strip it — all other lines are ignored.
+  const tag = `__NEXU_PATH_${Date.now()}__`;
+  try {
+    const shell = process.env.SHELL || "/bin/zsh";
+    const { stdout } = await execFileAsync(
+      shell,
+      ["-ilc", `printf '${tag}%s\\n' "$PATH"`],
+      {
+        timeout: 5000,
+        env: {
+          PATH: "/usr/bin:/bin",
+          HOME: os.homedir(),
+          USER: os.userInfo().username,
+          SHELL: shell,
+        },
+      },
+    );
+
+    const line = stdout.split("\n").find((l) => l.startsWith(tag));
+    const resolved = line ? line.slice(tag.length).trim() : "";
+    return resolved || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Stale plist cleanup — detect plists from a different app installation
 // ---------------------------------------------------------------------------
 
@@ -595,7 +654,7 @@ export async function bootstrapWithLaunchd(
   // Build a plistEnv with default ports for comparison. If existing plists
   // differ from what we'd generate now, they're from a different version or
   // installation and should be cleaned up.
-  const systemPath = process.env.PATH;
+  const systemPath = await resolveUserShellPath();
   const nodeModulesPath = path.dirname(path.dirname(env.openclawPath));
   const cleanupPlistEnv: PlistEnv = {
     isDev: env.isDev,
@@ -995,7 +1054,7 @@ export async function bootstrapWithLaunchd(
       launchd,
       label: labels.controller,
       port: effectivePorts.controllerPort,
-      timeoutMs: env.controllerStartupValidationTimeoutMs ?? 15000,
+      timeoutMs: env.controllerStartupValidationTimeoutMs ?? 30_000,
       probeTimeoutMs: 3000,
     });
 
@@ -1032,7 +1091,7 @@ export async function bootstrapWithLaunchd(
       launchd,
       label: labels.controller,
       port: retryPort,
-      timeoutMs: env.controllerStartupValidationTimeoutMs ?? 15000,
+      timeoutMs: env.controllerStartupValidationTimeoutMs ?? 30_000,
       probeTimeoutMs: 3000,
     });
     if (retryValidation.ok) {
@@ -1322,6 +1381,13 @@ function escapeRegexLiteral(value: string): string {
 
 function getNexuProcessPatterns(): string[] {
   const repoRoot = getWorkspaceRoot();
+  const slimclawRuntimeRoot = getSlimclawRuntimeRoot(repoRoot);
+  const slimclawArtifacts = resolveSlimclawRuntimeArtifacts(
+    slimclawRuntimeRoot,
+    {
+      requirePrepared: false,
+    },
+  );
   const nexuHome = path.join(os.homedir(), ".nexu");
   const patterns = new Set<string>([
     escapeRegexLiteral(
@@ -1331,15 +1397,7 @@ function getNexuProcessPatterns(): string[] {
     escapeRegexLiteral(
       path.join(repoRoot, "apps", "controller", "dist", "index.js"),
     ),
-    escapeRegexLiteral(
-      path.join(
-        repoRoot,
-        "openclaw-runtime",
-        "node_modules",
-        "openclaw",
-        "openclaw.mjs",
-      ),
-    ),
+    escapeRegexLiteral(slimclawArtifacts.entryPath),
     ...getNexuOpenclawProcessPatterns(),
   ]);
 
@@ -1362,21 +1420,18 @@ function getNexuProcessPatterns(): string[] {
 
 function getNexuOpenclawProcessPatterns(): string[] {
   const repoRoot = getWorkspaceRoot();
+  const slimclawRuntimeRoot = getSlimclawRuntimeRoot(repoRoot);
+  const slimclawArtifacts = resolveSlimclawRuntimeArtifacts(
+    slimclawRuntimeRoot,
+    {
+      requirePrepared: false,
+    },
+  );
   const patterns = new Set<string>([
     "\\.nexu/(runtime/)?openclaw-sidecar",
-    "\\.nexu/(runtime/)?openclaw-sidecar/.*/openclaw-gateway",
-    escapeRegexLiteral(
-      path.join(
-        repoRoot,
-        "openclaw-runtime",
-        "node_modules",
-        "openclaw",
-        "openclaw.mjs",
-      ),
-    ),
-    escapeRegexLiteral(
-      path.join(repoRoot, "openclaw-runtime", "bin", "openclaw-gateway"),
-    ),
+    "\\.nexu/(runtime/)?openclaw-sidecar/.*/openclaw(?:\\.cmd)?",
+    escapeRegexLiteral(slimclawArtifacts.entryPath),
+    escapeRegexLiteral(slimclawArtifacts.binPath),
   ]);
 
   if (process.resourcesPath) {
@@ -1399,7 +1454,18 @@ function getNexuOpenclawProcessPatterns(): string[] {
           "runtime",
           "openclaw",
           "bin",
-          "openclaw-gateway",
+          "openclaw",
+        ),
+      ),
+    );
+    patterns.add(
+      escapeRegexLiteral(
+        path.join(
+          process.resourcesPath,
+          "runtime",
+          "openclaw",
+          "bin",
+          "openclaw.cmd",
         ),
       ),
     );
@@ -2198,32 +2264,30 @@ export async function resolveLaunchdPaths(
       runtimeDir,
       nexuHome,
     );
+    const openclawArtifacts = resolveSlimclawRuntimeArtifacts(
+      openclawSidecarRoot,
+      { requirePrepared: false },
+    );
 
     return {
       nodePath,
       controllerEntryPath,
-      openclawPath: path.join(
-        openclawSidecarRoot,
-        "node_modules",
-        "openclaw",
-        "openclaw.mjs",
-      ),
+      openclawPath: openclawArtifacts.entryPath,
       // Use nexuHome as cwd instead of .app paths so launchd services
       // don't hold directory file-descriptors inside the bundle.
       controllerCwd: controllerRoot,
       openclawCwd: openclawSidecarRoot,
-      openclawBinPath: path.join(openclawSidecarRoot, "bin", "openclaw"),
-      openclawExtensionsDir: path.join(
-        openclawSidecarRoot,
-        "node_modules",
-        "openclaw",
-        "extensions",
-      ),
+      openclawBinPath: openclawArtifacts.binPath,
+      openclawExtensionsDir: openclawArtifacts.builtinExtensionsDir,
     };
   }
 
   // Development: use local paths
   const repoRoot = getWorkspaceRoot();
+  const slimclawRuntimePaths = resolveSlimclawRuntimePaths({
+    workspaceRoot: repoRoot,
+    requirePrepared: false,
+  });
   return {
     nodePath: process.execPath,
     controllerEntryPath: path.join(
@@ -2233,31 +2297,10 @@ export async function resolveLaunchdPaths(
       "dist",
       "index.js",
     ),
-    openclawPath: path.join(
-      repoRoot,
-      "openclaw-runtime",
-      "node_modules",
-      "openclaw",
-      "openclaw.mjs",
-    ),
+    openclawPath: slimclawRuntimePaths.entryPath,
     controllerCwd: path.join(repoRoot, "apps", "controller"),
-    openclawCwd: repoRoot,
-    openclawBinPath: path.join(
-      repoRoot,
-      ".tmp",
-      "sidecars",
-      "openclaw",
-      "bin",
-      "openclaw",
-    ),
-    openclawExtensionsDir: path.join(
-      repoRoot,
-      ".tmp",
-      "sidecars",
-      "openclaw",
-      "node_modules",
-      "openclaw",
-      "extensions",
-    ),
+    openclawCwd: slimclawRuntimePaths.runtimeRoot,
+    openclawBinPath: slimclawRuntimePaths.binPath,
+    openclawExtensionsDir: slimclawRuntimePaths.builtinExtensionsDir,
   };
 }

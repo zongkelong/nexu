@@ -14,7 +14,10 @@ import type { OpenClawConfig } from "@nexu/shared";
 import { logger } from "../lib/logger.js";
 import { serializeOpenClawConfig } from "../lib/openclaw-config-serialization.js";
 import type { OpenClawWsClient } from "../runtime/openclaw-ws-client.js";
-import type { ControllerRuntimeState } from "../runtime/state.js";
+import {
+  type ControllerRuntimeState,
+  isBootPhasePreReady,
+} from "../runtime/state.js";
 
 // ---------------------------------------------------------------------------
 // Public types — channel status & readiness
@@ -176,6 +179,41 @@ export class OpenClawGatewayService {
 
   noteConfigWritten(config: OpenClawConfig): void {
     this.lastPushedConfigHash = this.configHash(config);
+  }
+
+  async getGatewayHealthSnapshot(opts?: {
+    timeoutMs?: number;
+    probe?: boolean;
+  }): Promise<unknown> {
+    return this.wsClient.request(
+      "health",
+      {
+        probe: opts?.probe ?? false,
+      },
+      {
+        timeoutMs: opts?.timeoutMs ?? 1000,
+      },
+    );
+  }
+
+  async getGatewayStatusSummary(opts?: {
+    timeoutMs?: number;
+  }): Promise<unknown> {
+    return this.wsClient.request("status", undefined, {
+      timeoutMs: opts?.timeoutMs ?? 1000,
+    });
+  }
+
+  async getGatewayConfigSnapshot(opts?: {
+    timeoutMs?: number;
+  }): Promise<unknown> {
+    return this.wsClient.request(
+      "config.get",
+      {},
+      {
+        timeoutMs: opts?.timeoutMs ?? 1000,
+      },
+    );
   }
 
   /**
@@ -366,7 +404,7 @@ export class OpenClawGatewayService {
       // During boot or when gateway is still starting, show "connecting"
       // instead of "disconnected" so the UI doesn't flash a scary red state.
       const startupStatus: ChannelLiveStatus =
-        this.runtimeState.bootPhase === "booting" ||
+        isBootPhasePreReady(this.runtimeState.bootPhase) ||
         this.runtimeState.gatewayStatus === "starting"
           ? "connecting"
           : "disconnected";
