@@ -1029,6 +1029,22 @@ const zhCN = {
 
   // ── WhatsApp Setup ──
   "whatsappSetup.title": "连接 WhatsApp",
+  "whatsappSetup.personalTitle": "连接个人 WhatsApp",
+  "whatsappSetup.desc":
+    "用手机扫描一次即可绑定 WhatsApp Web。私聊会保持开启；在群聊中提到该账号时，也会默认启用回复。",
+  "whatsappSetup.qrAlt": "WhatsApp 二维码",
+  "whatsappSetup.waitingForScan": "等待扫描 WhatsApp 二维码",
+  "whatsappSetup.scanHint":
+    "在手机上打开 WhatsApp，进入“关联设备”后扫描此二维码。",
+  "whatsappSetup.preparingQr": "正在准备 WhatsApp 二维码",
+  "whatsappSetup.finishingConnection": "正在完成 WhatsApp 连接",
+  "whatsappSetup.retry": "重试",
+  "whatsappSetup.scanQr": "扫描 WhatsApp 二维码",
+  "whatsappSetup.connectSuccess": "WhatsApp 已连接",
+  "whatsappSetup.connectFailed": "WhatsApp 连接失败",
+  "whatsappSetup.startFailed": "启动 WhatsApp 登录失败",
+  "whatsappSetup.loadQrFailed": "加载 WhatsApp 二维码失败",
+  "whatsappSetup.waitFailed": "WhatsApp 登录超时",
 
   // ── QQ Setup ──
   "qqbotSetup.title": "连接 QQ",

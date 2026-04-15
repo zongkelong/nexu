@@ -1621,8 +1621,42 @@ export type PostApiV1ChannelsDingtalkConnectErrors = {
     /**
      * Invalid credentials
      */
-    409: {
+    422: {
         message: string;
+        code: 'already_connected' | 'app_id_mismatch' | 'invalid_credentials' | 'network_error' | 'proxy_error' | 'sync_failed' | 'timeout' | 'upstream_http_error';
+        requestId: string;
+        retryable: boolean;
+        phase: 'verify_credentials' | 'verify_app' | 'persist_config' | 'sync_runtime';
+    };
+    /**
+     * Upstream request failed
+     */
+    502: {
+        message: string;
+        code: 'already_connected' | 'app_id_mismatch' | 'invalid_credentials' | 'network_error' | 'proxy_error' | 'sync_failed' | 'timeout' | 'upstream_http_error';
+        requestId: string;
+        retryable: boolean;
+        phase: 'verify_credentials' | 'verify_app' | 'persist_config' | 'sync_runtime';
+    };
+    /**
+     * Local persistence or runtime sync failed
+     */
+    503: {
+        message: string;
+        code: 'already_connected' | 'app_id_mismatch' | 'invalid_credentials' | 'network_error' | 'proxy_error' | 'sync_failed' | 'timeout' | 'upstream_http_error';
+        requestId: string;
+        retryable: boolean;
+        phase: 'verify_credentials' | 'verify_app' | 'persist_config' | 'sync_runtime';
+    };
+    /**
+     * Upstream timeout
+     */
+    504: {
+        message: string;
+        code: 'already_connected' | 'app_id_mismatch' | 'invalid_credentials' | 'network_error' | 'proxy_error' | 'sync_failed' | 'timeout' | 'upstream_http_error';
+        requestId: string;
+        retryable: boolean;
+        phase: 'verify_credentials' | 'verify_app' | 'persist_config' | 'sync_runtime';
     };
 };
 

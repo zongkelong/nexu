@@ -76,7 +76,7 @@ describe("developer-notify", () => {
       issueUrl: "https://github.com/nexu-io/nexu/issues/99",
     });
 
-    expect(payload.card.header.title.content).toContain("新手友好 Issue");
+    expect(payload.card.header.title.content).toContain("刚新增 1 条 issue");
     expect(payload.card.body.elements[1]).toMatchObject({ tag: "column_set" });
     expect(
       payload.card.body.elements[1].columns.map(
@@ -92,7 +92,7 @@ describe("developer-notify", () => {
     expect(payload.card.body.elements[2]).toMatchObject({
       tag: "markdown",
       content: expect.stringContaining(
-        "1️⃣ 500—2000 积分奖励 = 价值 20 美金 nexu 使用额度",
+        "1️⃣ 最高价值 20 美金的 nexu 使用额度积分奖励",
       ),
     });
   });

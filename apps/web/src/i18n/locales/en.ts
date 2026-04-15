@@ -1089,6 +1089,22 @@ const en = {
 
   // ── WhatsApp Setup ──
   "whatsappSetup.title": "Connect WhatsApp",
+  "whatsappSetup.personalTitle": "Connect Personal WhatsApp",
+  "whatsappSetup.desc":
+    "Scan once with your phone to link WhatsApp Web. Direct messages stay open, and group replies are enabled by default when the account is mentioned.",
+  "whatsappSetup.qrAlt": "WhatsApp QR code",
+  "whatsappSetup.waitingForScan": "Waiting for WhatsApp scan",
+  "whatsappSetup.scanHint":
+    "Open WhatsApp on your phone, then go to Linked Devices and scan this QR code.",
+  "whatsappSetup.preparingQr": "Preparing WhatsApp QR code",
+  "whatsappSetup.finishingConnection": "Finishing WhatsApp connection",
+  "whatsappSetup.retry": "Retry",
+  "whatsappSetup.scanQr": "Scan WhatsApp QR",
+  "whatsappSetup.connectSuccess": "WhatsApp connected",
+  "whatsappSetup.connectFailed": "WhatsApp connect failed",
+  "whatsappSetup.startFailed": "Failed to start WhatsApp login",
+  "whatsappSetup.loadQrFailed": "Failed to load WhatsApp QR code",
+  "whatsappSetup.waitFailed": "WhatsApp login timed out",
 
   // ── QQ Setup ──
   "qqbotSetup.title": "Connect QQ",
