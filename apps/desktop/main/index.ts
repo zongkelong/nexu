@@ -1704,6 +1704,7 @@ app.whenReady().then(async () => {
         host: desktopDevInspectHost,
         port: desktopDevInspectPort,
         token: desktopDevInspectToken,
+        onShowShell: () => sendDesktopCommand("control", "full"),
       });
     } catch (error) {
       writeDesktopMainLog({

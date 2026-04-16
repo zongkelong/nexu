@@ -470,6 +470,13 @@ export async function getDesktopDevInspectDomSnapshot(options?: {
   });
 }
 
+export async function showDesktopDevShell(): Promise<void> {
+  await requestDesktopInspect<{ ok: boolean }>({
+    method: "POST",
+    pathname: "/shell",
+  });
+}
+
 export async function getDesktopDevInspectRendererLogs(options?: {
   limit?: number;
 }): Promise<DesktopDevRendererLogResponse> {
