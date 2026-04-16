@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import {
   getApiV1Bots,
   getApiV1ChatHistory,
@@ -838,8 +839,10 @@ export function LocalChatPage() {
         }
 
         // Also resolve the current session ID so we can use it for send flow.
+        // Always look up the main session — local chat routes all messages to
+        // agent:{botId}:main regardless of the channel selector.
         const { data: sessionData } = await getApiV1ChatSession({
-          query: { botId, sessionKey },
+          query: { botId, sessionKey: `agent:${botId}:main` },
         });
         if (contextKeyRef.current !== ctxKey) return;
         const sid = sessionData?.session?.id;
@@ -911,6 +914,10 @@ export function LocalChatPage() {
       const botId = selectedBot.id;
       const sessionKey = buildSessionKey(botId, selectedChannel);
       const ctxKey = `${botId}::${sessionKey}`;
+      // Local chat always routes to the main session regardless of the channel
+      // selector.  The channel selector exists to route *history views* and for
+      // future channel-aware send support, but chat.send always uses :main today.
+      const mainSessionKey = `agent:${botId}:main`;
 
       // Mark send as active BEFORE the optimistic update so the history-load
       // effect cannot overwrite the optimistic bubble if it fires concurrently.
@@ -953,6 +960,8 @@ export function LocalChatPage() {
 
         // 3. Discover the session with retries — OpenClaw writes sessions.json
         //    asynchronously, so we poll until it appears (≤ 3 s).
+        //    Always look up the main session key: local chat.send always targets
+        //    agent:{botId}:main regardless of which channel the selector shows.
         let sid = sessionId;
         if (!sid) {
           for (
@@ -968,7 +977,7 @@ export function LocalChatPage() {
             if (contextKeyRef.current !== ctxKey) return;
             try {
               const { data: sessionData } = await getApiV1ChatSession({
-                query: { botId, sessionKey },
+                query: { botId, sessionKey: mainSessionKey },
               });
               const found = sessionData?.session?.id;
               if (found) {
@@ -1115,8 +1124,7 @@ export function LocalChatPage() {
   const readFileBlob = useCallback(
     (file: File) => {
       if (file.size > MAX_FILE_BYTES) {
-        // eslint-disable-next-line no-alert
-        alert(
+        toast.error(
           `File "${file.name}" is too large (${formatBytes(file.size)}). Maximum allowed size is ${formatBytes(MAX_FILE_BYTES)}.`,
         );
         return;
@@ -1197,7 +1205,7 @@ export function LocalChatPage() {
       const blob = imageItem.getAsFile();
       if (!blob) return;
       if (blob.size > MAX_FILE_BYTES) {
-        alert(
+        toast.error(
           `Pasted image is too large (${formatBytes(blob.size)}). Maximum allowed size is ${formatBytes(MAX_FILE_BYTES)}.`,
         );
         return;

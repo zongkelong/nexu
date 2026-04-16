@@ -123,7 +123,7 @@ export function registerChatRoutes(
       },
     }),
     async (c) => {
-      const { botId, sessionKey, message } = c.req.valid("json");
+      const { botId, message } = c.req.valid("json");
 
       // Send message to agent main session — do NOT pre-create the session
       // here.  Pre-creating writes an empty key-based .jsonl file that
@@ -136,9 +136,14 @@ export function registerChatRoutes(
       // flushed asynchronously by OpenClaw, so this may return null on the
       // very first message.  The frontend handles that case with its own
       // 3-second discovery retry loop — no server-side sleep needed here.
+      //
+      // Always look up via the main session key — chat.send always targets
+      // agent:{botId}:main regardless of which channel key the frontend
+      // sends in the body (the body's sessionKey is informational only).
+      const mainSessionKey = `agent:${botId}:main`;
       const session = await container.sessionService.getSessionBySessionKey(
         botId,
-        sessionKey,
+        mainSessionKey,
       );
 
       return c.json({
