@@ -30,6 +30,7 @@ describe("developer-notify", () => {
 
   it("builds the developer PR payload with expected buttons", () => {
     const payload = buildDeveloperPrPayload({
+      title: "fix: resolve login crash",
       author: "alice",
       labels: "bug, help wanted",
       prUrl: "https://github.com/nexu-io/nexu/pull/10",
@@ -38,6 +39,10 @@ describe("developer-notify", () => {
     expect(payload.card.header.title.content).toContain(
       "又有新贡献者给 Nexu 提 PR",
     );
+    expect(payload.card.body.elements[0]).toMatchObject({
+      tag: "markdown",
+      content: expect.stringContaining("**Title:** fix: resolve login crash"),
+    });
     expect(payload.card.body.elements[0]).toMatchObject({
       tag: "markdown",
       content: expect.stringContaining("**Author:** alice"),
