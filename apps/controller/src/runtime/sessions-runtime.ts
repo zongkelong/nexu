@@ -208,18 +208,33 @@ export class SessionsRuntime {
         // compacted session (a previous main session that was superseded by
         // context compaction) — we exclude it from the list so the UI only
         // shows the current active session for each conversation thread.
+        //
+        // Also collect filenames that belong to sub-agent sessions (sessionKey
+        // contains ":subagent:").  Sub-agent sessions are spawned internally
+        // by the main agent to offload work (e.g. a WeChat bot delegating to
+        // a task sub-agent); they are not user-initiated conversations and
+        // should not appear in the conversation list.
         const activeFileNames = new Set<string>();
-        for (const entry of Object.values(sessionsIndex)) {
+        const subagentFileNames = new Set<string>();
+        for (const [indexKey, entry] of Object.entries(sessionsIndex)) {
+          let fileName: string | null = null;
           if (
             typeof entry.sessionFile === "string" &&
             entry.sessionFile.trim()
           ) {
-            activeFileNames.add(path.basename(entry.sessionFile));
+            fileName = path.basename(entry.sessionFile);
           } else if (
             typeof entry.sessionId === "string" &&
             entry.sessionId.trim()
           ) {
-            activeFileNames.add(`${entry.sessionId}.jsonl`);
+            fileName = `${entry.sessionId}.jsonl`;
+          }
+          if (!fileName) {
+            continue;
+          }
+          activeFileNames.add(fileName);
+          if (indexKey.includes(":subagent:")) {
+            subagentFileNames.add(fileName);
           }
         }
 
@@ -238,6 +253,14 @@ export class SessionsRuntime {
           // Skip orphaned compacted sessions — they are not in sessions.json
           // and their history is merged transparently by getFullMainChatHistory.
           if (activeFileNames.size > 0 && !activeFileNames.has(file.name)) {
+            continue;
+          }
+
+          // Skip sub-agent sessions — they are internal delegations (main
+          // agent spawning a task sub-agent to offload work), not
+          // user-initiated conversations.  They must not appear in the
+          // sidebar conversation list.
+          if (subagentFileNames.has(file.name)) {
             continue;
           }
 

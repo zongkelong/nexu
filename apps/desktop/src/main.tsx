@@ -1068,13 +1068,9 @@ function DiagnosticsPage({
 }
 
 function DesktopShell() {
-  const isPackaged = window.nexuHost.bootstrap.isPackaged;
-  const isLocalDev = window.nexuHost.bootstrap.buildInfo.source === "local-dev";
   const [activeSurface, setActiveSurface] = useState<DesktopSurface>("web");
   const [showSetBalanceDialog, setShowSetBalanceDialog] = useState(false);
-  const [chromeMode, setChromeMode] = useState<DesktopChromeMode>(
-    isPackaged && !isLocalDev ? "immersive" : "full",
-  );
+  const [chromeMode, setChromeMode] = useState<DesktopChromeMode>("immersive");
   const webSurfaceVersion = 0;
   const [runtimeConfig, setRuntimeConfig] =
     useState<DesktopRuntimeConfig | null>(null);
