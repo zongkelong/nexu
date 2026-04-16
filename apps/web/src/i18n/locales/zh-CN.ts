@@ -1222,8 +1222,8 @@ const zhCN = {
   "localChat.emptyHint": "选择机器人后，在下方输入消息",
   "localChat.selectChannel": "频道",
   "localChat.channel.webchat": "WebChat",
-  "localChat.channel.feishu": "飞书（测试）",
-  "localChat.channel.wechat": "微信（测试）",
+  "localChat.channel.feishu": "飞书",
+  "localChat.channel.wechat": "微信",
 } as const;
 
 export default zhCN;

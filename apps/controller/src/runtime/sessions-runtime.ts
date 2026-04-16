@@ -202,6 +202,27 @@ export class SessionsRuntime {
 
         const sessionsDir = path.join(agentsDir, agentEntry.name, "sessions");
         const sessionsIndex = await this.readSessionsIndex(sessionsDir);
+
+        // Build the set of JSONL filenames that are currently referenced by
+        // sessions.json.  Any JSONL file NOT in this set is an "orphaned"
+        // compacted session (a previous main session that was superseded by
+        // context compaction) — we exclude it from the list so the UI only
+        // shows the current active session for each conversation thread.
+        const activeFileNames = new Set<string>();
+        for (const entry of Object.values(sessionsIndex)) {
+          if (
+            typeof entry.sessionFile === "string" &&
+            entry.sessionFile.trim()
+          ) {
+            activeFileNames.add(path.basename(entry.sessionFile));
+          } else if (
+            typeof entry.sessionId === "string" &&
+            entry.sessionId.trim()
+          ) {
+            activeFileNames.add(`${entry.sessionId}.jsonl`);
+          }
+        }
+
         let files: Dirent[];
         try {
           files = await readdir(sessionsDir, { withFileTypes: true });
@@ -211,6 +232,12 @@ export class SessionsRuntime {
 
         for (const file of files) {
           if (!file.isFile() || !file.name.endsWith(".jsonl")) {
+            continue;
+          }
+
+          // Skip orphaned compacted sessions — they are not in sessions.json
+          // and their history is merged transparently by getFullMainChatHistory.
+          if (activeFileNames.size > 0 && !activeFileNames.has(file.name)) {
             continue;
           }
 
@@ -480,6 +507,116 @@ export class SessionsRuntime {
       ),
       sessionKey: session.sessionKey,
     };
+  }
+
+  /**
+   * Returns the full conversation history for a bot's main webchat session,
+   * aggregating across all compacted sessions in chronological order.
+   *
+   * When OpenClaw performs context compaction it creates a new UUID-named JSONL
+   * and updates sessions.json to point agent:{botId}:main at that new file.
+   * The previous session files remain on disk but are no longer referenced by
+   * any session key ("orphaned").  Since every channel session (WeChat, Feishu,
+   * Slack, …) is always mapped in sessions.json, any orphaned JSONL file must
+   * have been a previous main (webchat) session — so we include all of them.
+   *
+   * The result is sorted by message createdAt so the timeline reads correctly
+   * across session boundaries.
+   */
+  async getFullMainChatHistory(
+    botId: string,
+    limit = 500,
+  ): Promise<{ messages: ChatMessage[]; sessionCount: number }> {
+    const sessionsDir = path.join(
+      this.env.openclawStateDir,
+      "agents",
+      botId,
+      "sessions",
+    );
+
+    // 1. Read sessions.json to find which session IDs are currently "active"
+    //    (mapped to any session key, e.g. channel sessions).
+    const index = await this.readSessionsIndex(sessionsDir);
+    const activeMappedIds = new Set<string>();
+    let currentMainId: string | null = null;
+    const mainKey = `agent:${botId}:main`;
+
+    for (const [key, entry] of Object.entries(index)) {
+      let sessionId: string | null = null;
+      if (typeof entry.sessionFile === "string" && entry.sessionFile.trim()) {
+        // sessionFile is the full path; we want the UUID basename (without .jsonl)
+        sessionId = path.basename(entry.sessionFile, ".jsonl");
+      } else if (
+        typeof entry.sessionId === "string" &&
+        entry.sessionId.trim()
+      ) {
+        sessionId = entry.sessionId;
+      }
+      if (!sessionId) continue;
+      activeMappedIds.add(sessionId);
+      if (key === mainKey) {
+        currentMainId = sessionId;
+      }
+    }
+
+    // 2. List all JSONL files in the sessions directory.
+    let files: string[];
+    try {
+      const dirents = await readdir(sessionsDir, { withFileTypes: true });
+      files = dirents
+        .filter((d) => d.isFile() && d.name.endsWith(".jsonl"))
+        .map((d) => path.join(sessionsDir, d.name));
+    } catch {
+      return { messages: [], sessionCount: 0 };
+    }
+
+    // 3. Candidate sessions = current main session + any JSONL that is NOT
+    //    currently mapped to any session key (orphaned = previous main sessions).
+    const candidateFiles: string[] = [];
+    for (const filePath of files) {
+      const id = path.basename(filePath, ".jsonl");
+      const isMappedToOtherKey =
+        activeMappedIds.has(id) && id !== currentMainId;
+      if (!isMappedToOtherKey) {
+        candidateFiles.push(filePath);
+      }
+    }
+
+    // 4. Read the first-line timestamp of each candidate file to sort sessions
+    //    chronologically (oldest → newest).
+    const withTimestamps: Array<{ filePath: string; ts: number }> = [];
+    for (const filePath of candidateFiles) {
+      const ts = await this.readFirstLineTimestamp(filePath);
+      withTimestamps.push({ filePath, ts });
+    }
+    withTimestamps.sort((a, b) => a.ts - b.ts);
+
+    // 5. Read and concatenate messages from all sessions, then return the last
+    //    `limit` messages so the caller always gets a bounded result.
+    const all: ChatMessage[] = [];
+    for (const { filePath } of withTimestamps) {
+      // Use a large per-file limit; we'll trim the total at the end.
+      const msgs = await this.readMessages(filePath, 10_000, "webchat");
+      all.push(...msgs);
+    }
+
+    return {
+      messages: all.slice(-limit),
+      sessionCount: withTimestamps.length,
+    };
+  }
+
+  /** Read the `timestamp` field from the first line of a JSONL session file. */
+  private async readFirstLineTimestamp(filePath: string): Promise<number> {
+    try {
+      const raw = await readFile(filePath, "utf8");
+      const firstLine = raw.split("\n")[0]?.trim();
+      if (!firstLine) return 0;
+      const parsed = JSON.parse(firstLine) as { timestamp?: string };
+      return parsed.timestamp ? new Date(parsed.timestamp).getTime() : 0;
+    } catch {
+      return 0;
+    }
   }
 
   async appendCompatTranscript(input: {

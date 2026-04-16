@@ -303,15 +303,55 @@ export class OpenClawGatewayService {
    * When only `messageType === "image"` is set (legacy single-image path),
    * the image data is in `message` and is moved to attachments automatically.
    */
+  /**
+   * Strip a DataURL header (`data:<mime>;base64,`) and return only the raw
+   * base64 payload.  OpenClaw's attachment `content` field expects plain
+   * base64, not a full DataURL.  Strings that are already plain base64 are
+   * returned unchanged.
+   */
+  private static stripDataUrlPrefix(dataOrBase64: string): string {
+    const commaIdx = dataOrBase64.indexOf(",");
+    // DataURLs contain exactly one comma after the header; plain base64 may
+    // also contain commas in rare edge cases, but only DataURLs start with
+    // "data:" and have a semicolon before the comma.
+    if (
+      commaIdx !== -1 &&
+      dataOrBase64.startsWith("data:") &&
+      dataOrBase64.includes(";base64,")
+    ) {
+      return dataOrBase64.slice(commaIdx + 1);
+    }
+    return dataOrBase64;
+  }
+
+  /**
+   * Extract the MIME type from a DataURL header (`data:<mime>;base64,...`).
+   * Returns the provided fallback when the input is not a DataURL.
+   */
+  private static mimeFromDataUrl(
+    dataOrBase64: string,
+    fallback: string | undefined,
+  ): string | undefined {
+    if (dataOrBase64.startsWith("data:") && dataOrBase64.includes(";base64,")) {
+      const semicolon = dataOrBase64.indexOf(";");
+      return dataOrBase64.slice(5, semicolon); // "data:" is 5 chars
+    }
+    return fallback;
+  }
+
   async sendToMainSession(input: {
     botId: string;
     sessionKey: string;
     message: string;
     messageType?: "text" | "image" | "video" | "audio" | "file";
     metadata?: Record<string, unknown>;
-    /** Pre-built attachments list for multipart messages */
+    /**
+     * Pre-built image attachments for multipart messages.
+     * Non-image files are not passed here — they are folded into `message`
+     * as text by the caller (mirrors extractFileContentFromSource pattern).
+     */
     attachments?: Array<{
-      type: "image" | "file";
+      type: "image";
       data: string;
       mimeType?: string;
       filename?: string;
@@ -327,24 +367,45 @@ export class OpenClawGatewayService {
       input.messageType === "image" && callerAttachments.length === 0;
 
     // Build the RPC attachments array.
+    // OpenClaw's normalizeRpcAttachmentsToChatAttachments expects:
+    //   - `content` (string base64 or ArrayBuffer) — NOT `data`
+    //   - `fileName` (camelCase) — NOT `filename`
+    //   - `mimeType`
+    // Attachments whose `content` is falsy are silently filtered out by
+    // OpenClaw, so using the wrong field name causes silent data loss.
+    //
+    // We also strip any DataURL header (`data:<mime>;base64,`) that the
+    // frontend may have included — OpenClaw expects plain base64.
     let rpcAttachments: Array<Record<string, unknown>> | undefined;
     if (isLegacyImage) {
+      const rawContent = OpenClawGatewayService.stripDataUrlPrefix(
+        input.message,
+      );
+      const mimeType =
+        OpenClawGatewayService.mimeFromDataUrl(
+          input.message,
+          input.metadata?.mimeType as string | undefined,
+        ) ?? (input.metadata?.mimeType as string | undefined);
       rpcAttachments = [
         {
           type: "image",
-          data: input.message,
-          ...(input.metadata?.mimeType
-            ? { mimeType: input.metadata.mimeType }
-            : {}),
+          content: rawContent,
+          ...(mimeType ? { mimeType } : {}),
         },
       ];
     } else if (callerAttachments.length > 0) {
-      rpcAttachments = callerAttachments.map((a) => ({
-        type: a.type,
-        data: a.data,
-        ...(a.mimeType ? { mimeType: a.mimeType } : {}),
-        ...(a.filename ? { filename: a.filename } : {}),
-      }));
+      rpcAttachments = callerAttachments.map((a) => {
+        const rawContent = OpenClawGatewayService.stripDataUrlPrefix(a.data);
+        const mimeType =
+          OpenClawGatewayService.mimeFromDataUrl(a.data, a.mimeType) ??
+          a.mimeType;
+        return {
+          type: a.type,
+          content: rawContent,
+          ...(mimeType ? { mimeType } : {}),
+          ...(a.filename ? { fileName: a.filename } : {}),
+        };
+      });
     }
 
     // Text field: empty for legacy image-only, otherwise pass through.

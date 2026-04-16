@@ -111,6 +111,14 @@ if (!hasSingleInstanceLock) {
 // so users see it immediately on first launch.
 void app.dock?.show();
 
+// In dev mode the raw Electron binary is used (no .app bundle), so macOS
+// falls back to the default Electron atom icon.  Set the custom icon explicitly
+// so the Dock shows the correct Nexu icon during local development.
+if (!app.isPackaged && app.dock) {
+  const devIcon = resolve(getDesktopAppRoot(), "build", "icon.png");
+  app.dock.setIcon(devIcon);
+}
+
 const electronRoot = app.isPackaged
   ? process.resourcesPath
   : getDesktopAppRoot();

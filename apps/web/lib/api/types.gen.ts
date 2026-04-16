@@ -2276,7 +2276,7 @@ export type PostApiV1ChatLocalData = {
                 size?: number;
             };
             attachments?: Array<{
-                type: 'image' | 'file';
+                type: 'image';
                 content: string;
                 metadata?: {
                     mimeType?: string;
@@ -2324,6 +2324,34 @@ export type PostApiV1ChatLocalResponses = {
 };
 
 export type PostApiV1ChatLocalResponse = PostApiV1ChatLocalResponses[keyof PostApiV1ChatLocalResponses];
+
+export type GetApiV1ChatHistoryData = {
+    body?: never;
+    path?: never;
+    query: {
+        botId: string;
+        limit?: number;
+    };
+    url: '/api/v1/chat/history';
+};
+
+export type GetApiV1ChatHistoryResponses = {
+    /**
+     * Full conversation history aggregated across all compacted sessions
+     */
+    200: {
+        messages: Array<{
+            id: string;
+            role: 'user' | 'assistant';
+            content?: unknown;
+            timestamp: number;
+            createdAt: string;
+        }>;
+        sessionCount: number;
+    };
+};
+
+export type GetApiV1ChatHistoryResponse = GetApiV1ChatHistoryResponses[keyof GetApiV1ChatHistoryResponses];
 
 export type PostApiInternalSessionsData = {
     body?: {

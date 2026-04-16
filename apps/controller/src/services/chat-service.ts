@@ -11,7 +11,8 @@ export interface LocalChatMessageMetadata {
 }
 
 export interface LocalChatAttachment {
-  type: "image" | "file";
+  /** Only images are sent via attachments; files go via message text. */
+  type: "image";
   content: string;
   metadata?: {
     mimeType?: string;

@@ -18,8 +18,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   getApiV1Bots,
+  getApiV1ChatHistory,
   getApiV1ChatSession,
-  getApiV1SessionsByIdMessages,
   postApiV1ChatLocal,
 } from "../../lib/api/sdk.gen";
 
@@ -49,13 +49,24 @@ interface ChatMsg {
 interface PendingAttachment {
   id: string;
   type: "image" | "file";
-  /** data: URL for rendering thumbnails / previews */
+  /** data: URL — used only for rendering thumbnails / previews in the tray */
   previewUrl: string;
-  /** base64 DataURL to send as content */
+  /**
+   * Pure base64-encoded content (NO data: URL prefix).
+   * For images this is sent via the `attachments` array to model vision.
+   * For text files the content is read separately into `textContent` instead.
+   */
   content: string;
   mimeType: string;
   filename?: string;
   size?: number;
+  /**
+   * Extracted UTF-8 text for text-readable files (txt, csv, json, code …).
+   * When present, the file content is folded into the message body rather
+   * than sent as a binary attachment — mirroring how mature channel adapters
+   * handle documents via extractFileContentFromSource().
+   */
+  textContent?: string;
 }
 
 /** Typed content blocks used for rendering chat bubbles */
@@ -90,8 +101,20 @@ function buildSessionKey(botId: string, channel: ChannelOption): string {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Maximum raw file size accepted for upload (≈7.5 MB raw → ~10 MB base64) */
+/**
+ * Maximum raw file size accepted for upload.
+ * OpenClaw's parseMessageWithAttachments uses a 5 MB decoded-bytes limit, so
+ * 5 MB raw → ~6.7 MB base64 comfortably fits.  We keep 7.5 MB to allow for
+ * slightly larger images while still staying under OpenClaw's hard cap.
+ */
 const MAX_FILE_BYTES = 7_500_000;
+
+/**
+ * Maximum number of UTF-8 characters extracted from a text file to include
+ * in the message body.  Roughly 4 k tokens — enough for typical source files,
+ * CSV snippets, and JSON payloads without bloating the context window.
+ */
+const MAX_FILE_TEXT_CHARS = 4_000;
 
 // Polling / session-discovery timing constants
 /** How often to poll for a new assistant message (ms) */
@@ -119,6 +142,14 @@ function extractContent(msg: ChatMsg): ContentBlock[] {
 
   // Anthropic-style content block array (from JSONL history)
   if (Array.isArray(c)) {
+    // Already-processed ContentBlocks (e.g. optimistic messages) carry a
+    // `kind` discriminator rather than Anthropic's `type` field — pass through.
+    if (
+      c.length > 0 &&
+      typeof (c[0] as Record<string, unknown>).kind === "string"
+    ) {
+      return c as ContentBlock[];
+    }
     return (c as Array<Record<string, unknown>>).flatMap(
       (b): ContentBlock[] => {
         if (b.type === "text") {
@@ -178,6 +209,41 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Strip the `data:<mime>;base64,` header from a DataURL and return pure
+ * base64.  If the string is already bare base64 it is returned unchanged.
+ * This mirrors the channel-adapter pattern where attachments always carry
+ * raw base64 — never a DataURL — in the `content` field.
+ */
+function extractBase64FromDataUrl(dataUrl: string): string {
+  const commaIdx = dataUrl.indexOf(",");
+  if (commaIdx !== -1 && dataUrl.startsWith("data:")) {
+    return dataUrl.slice(commaIdx + 1);
+  }
+  return dataUrl;
+}
+
+/**
+ * Returns true for MIME types whose content can be meaningfully read as
+ * UTF-8 text and included in the message body.
+ * Matches the categories handled by OpenClaw's extractFileContentFromSource().
+ */
+function isTextReadable(mimeType: string): boolean {
+  if (mimeType.startsWith("text/")) return true;
+  const textSubtypes = new Set([
+    "application/json",
+    "application/xml",
+    "application/javascript",
+    "application/typescript",
+    "application/x-yaml",
+    "application/toml",
+    "application/csv",
+    "application/x-sh",
+    "application/x-shellscript",
+  ]);
+  return textSubtypes.has(mimeType);
 }
 
 /** Pick a lucide icon and colour based on MIME type */
@@ -652,6 +718,11 @@ export function LocalChatPage() {
   // True while a sendMessage call is in flight — prevents the history-load
   // effect from overwriting the optimistic bubble with stale history.
   const activeSendRef = useRef(false);
+  // When loading history for the first time (or after switching bot/channel),
+  // snap to the bottom instantly so the user sees the latest message without
+  // watching the page scroll through the whole history.  Reset to true on
+  // every bot/channel switch; set to false after the first scroll fires.
+  const scrollInstantRef = useRef(true);
 
   // Fetch bots
   const { data: botsData, isLoading: botsLoading } = useQuery({
@@ -671,10 +742,20 @@ export function LocalChatPage() {
     }
   }, [activeBots, selectedBot]);
 
-  // Auto-scroll on new messages
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when messages array changes
+  // Auto-scroll on new messages.
+  // Uses "instant" on initial history load so the page snaps to the bottom
+  // without animating through the full history; subsequent scrolls (new
+  // messages, typing indicator) use "smooth" for a natural feel.
+  //
+  // IMPORTANT: do NOT consume the instant-scroll token when the message list
+  // is still empty (the effect fires once on mount before history arrives).
+  // Consuming it early would cause the history load scroll to use "smooth"
+  // and scroll from top to bottom visibly.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messages.length === 0 && !waitingReply) return;
+    const behavior = scrollInstantRef.current ? "instant" : "smooth";
+    scrollInstantRef.current = false;
+    endRef.current?.scrollIntoView({ behavior });
   }, [messages, waitingReply]);
 
   // ── Polling for AI reply ──────────────────────────────────────────────────
@@ -688,7 +769,7 @@ export function LocalChatPage() {
   }, []);
 
   const startPolling = useCallback(
-    (sid: string, currentAssistantCount: number) => {
+    (botId: string, currentAssistantCount: number) => {
       stopPolling();
       assistantCountRef.current = currentAssistantCount;
       setWaitingReply(true);
@@ -696,9 +777,8 @@ export function LocalChatPage() {
       pollingRef.current = setInterval(async () => {
         attempts++;
         try {
-          const { data } = await getApiV1SessionsByIdMessages({
-            path: { id: sid },
-            query: { limit: 200 },
+          const { data } = await getApiV1ChatHistory({
+            query: { botId, limit: 500 },
           });
           const latest = ((data as Record<string, unknown>)?.messages ??
             []) as ChatMsg[];
@@ -727,9 +807,9 @@ export function LocalChatPage() {
   // Cleanup on unmount
   useEffect(() => () => stopPolling(), [stopPolling]);
 
-  // ── Session discovery: load history when bot/channel changes ─────────────
-  // When the user navigates to the chat tab or switches bot/channel, look up
-  // the existing session in OpenClaw's index and show its history immediately.
+  // ── Session discovery: load full history when bot/channel changes ────────
+  // Calls the aggregated history endpoint which transparently spans all
+  // compacted sessions — the user always sees one continuous conversation.
 
   useEffect(() => {
     if (!selectedBot) return;
@@ -741,27 +821,14 @@ export function LocalChatPage() {
 
     void (async () => {
       try {
-        const { data } = await getApiV1ChatSession({
-          query: { botId, sessionKey },
+        // Load the full cross-session history immediately.
+        const { data: histData } = await getApiV1ChatHistory({
+          query: { botId, limit: 500 },
         });
-        // Bail if the user switched bot/channel while we were fetching
-        if (contextKeyRef.current !== ctxKey) return;
-
-        const sid = data?.session?.id;
-        if (!sid) return;
-
-        setSessionId(sid);
-
-        const { data: msgData } = await getApiV1SessionsByIdMessages({
-          path: { id: sid },
-          query: { limit: 200 },
-        });
-        // Bail if bot/channel changed or a send is in progress — never
-        // overwrite an optimistic bubble with stale history.
         if (contextKeyRef.current !== ctxKey) return;
         if (activeSendRef.current) return;
 
-        const msgs = ((msgData as Record<string, unknown>)?.messages ??
+        const msgs = ((histData as Record<string, unknown>)?.messages ??
           []) as ChatMsg[];
         if (msgs.length > 0) {
           setMessages(msgs);
@@ -769,6 +836,14 @@ export function LocalChatPage() {
             (m) => m.role === "assistant",
           ).length;
         }
+
+        // Also resolve the current session ID so we can use it for send flow.
+        const { data: sessionData } = await getApiV1ChatSession({
+          query: { botId, sessionKey },
+        });
+        if (contextKeyRef.current !== ctxKey) return;
+        const sid = sessionData?.session?.id;
+        if (sid) setSessionId(sid);
       } catch {
         // silently ignore — session simply doesn't exist yet
       }
@@ -779,6 +854,7 @@ export function LocalChatPage() {
 
   const handleSelectBot = useCallback(
     (bot: BotItem) => {
+      scrollInstantRef.current = true;
       setSelectedBot(bot);
       setSessionId(null);
       setMessages([]);
@@ -790,6 +866,7 @@ export function LocalChatPage() {
 
   const handleSelectChannel = useCallback(
     (channel: ChannelOption) => {
+      scrollInstantRef.current = true;
       setSelectedChannel(channel);
       setSessionId(null);
       setMessages([]);
@@ -820,8 +897,9 @@ export function LocalChatPage() {
         type: "text" | "image" | "file";
         content: string;
         metadata?: { mimeType?: string; filename?: string; size?: number };
+        // Only images go via the attachments array; file content goes in `content`.
         attachments?: Array<{
-          type: "image" | "file";
+          type: "image";
           content: string;
           metadata?: { mimeType?: string; filename?: string; size?: number };
         }>;
@@ -917,7 +995,7 @@ export function LocalChatPage() {
         //    assistantCountRef.current is already up-to-date from the last
         //    history load or polling cycle, so polling will correctly detect
         //    the first new assistant message.
-        startPolling(sid, assistantCountRef.current);
+        startPolling(botId, assistantCountRef.current);
       } catch {
         setSending(false);
         setWaitingReply(false);
@@ -940,29 +1018,58 @@ export function LocalChatPage() {
 
     const optimisticBlocks = buildOptimisticBlocks(text, atts);
 
-    if (atts.length === 0) {
-      // Pure text (existing path)
-      await sendMessage({ type: "text", content: text }, optimisticBlocks);
-    } else if (atts.length === 1 && !text && atts[0]?.type === "image") {
-      // Single image with no text — legacy path (compatible with older history format)
-      const singleImage = atts[0];
+    // ── Mirror mature channel-adapter pattern ────────────────────────────────
+    // Images  → sent via `attachments[]` → OpenClaw normalises + MIME-sniffs
+    //           → Anthropic vision content block.
+    // Files   → text content folded into message body (extractFileContentFromSource
+    //           equivalent); binary files get a filename/size note so the model
+    //           at least knows what was attached.
+    // ────────────────────────────────────────────────────────────────────────
+    const imageAtts = atts.filter((a) => a.type === "image");
+    const fileAtts = atts.filter((a) => a.type === "file");
+
+    // Build enriched message text: append extracted file content / filename notes.
+    let fullText = text;
+    for (const f of fileAtts) {
+      if (f.textContent !== undefined) {
+        // Text-readable file — include content as a fenced code block
+        const excerpt = f.textContent.slice(0, MAX_FILE_TEXT_CHARS);
+        const truncated = f.textContent.length > MAX_FILE_TEXT_CHARS;
+        fullText += `\n\n[文件: ${f.filename ?? "file"}]\n\`\`\`\n${excerpt}${truncated ? "\n…（内容过长，已截断）" : ""}\n\`\`\``;
+      } else {
+        // Binary file (PDF, Office, …) — model can't read content, note it
+        fullText += `\n\n[附件: ${f.filename ?? "file"} (${formatBytes(f.size ?? 0)}，二进制文件，内容无法直接传递)]`;
+      }
+    }
+
+    if (imageAtts.length === 0) {
+      // Pure text — may include appended file content
+      await sendMessage({ type: "text", content: fullText }, optimisticBlocks);
+    } else if (
+      imageAtts.length === 1 &&
+      !fullText.trim() &&
+      fileAtts.length === 0 &&
+      imageAtts[0]
+    ) {
+      // Single image, no text, no files — legacy single-image path
+      const singleImage = imageAtts[0];
       await sendMessage(
         {
           type: "image",
-          content: singleImage.content,
+          content: singleImage.content, // already pure base64
           metadata: { mimeType: singleImage.mimeType },
         },
         optimisticBlocks,
       );
     } else {
-      // Multipart: text + one or more attachments (images / files)
+      // Images + optional text (file content already folded into fullText)
       await sendMessage(
         {
           type: "text",
-          content: text,
-          attachments: atts.map((a) => ({
-            type: a.type,
-            content: a.content,
+          content: fullText,
+          attachments: imageAtts.map((a) => ({
+            type: "image" as const, // only images go via the attachments array
+            content: a.content, // pure base64
             metadata: {
               mimeType: a.mimeType,
               filename: a.filename,
@@ -994,7 +1101,17 @@ export function LocalChatPage() {
 
   // ── File / paste handling ─────────────────────────────────────────────────
 
-  /** Read a Blob/File and push it into pendingAttachments */
+  /**
+   * Read a Blob/File and push it into pendingAttachments.
+   *
+   * Following the mature channel-adapter pattern:
+   * - Images  → pure base64 in `content` (sent via `attachments` to model vision)
+   * - Text files → pure base64 in `content` + UTF-8 text in `textContent`
+   *               (text is folded into the message body, mirroring
+   *                extractFileContentFromSource() in channel adapters)
+   * - Other binary → pure base64 in `content`, no `textContent`
+   *               (filename + size appended to message as a note)
+   */
   const readFileBlob = useCallback(
     (file: File) => {
       if (file.size > MAX_FILE_BYTES) {
@@ -1005,13 +1122,48 @@ export function LocalChatPage() {
         return;
       }
       const isImage = file.type.startsWith("image/");
+
+      // Phase 1: read as DataURL — gives us preview URL + base64 content
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
+        const base64 = extractBase64FromDataUrl(dataUrl);
+
+        if (isImage) {
+          addAttachment({
+            type: "image",
+            previewUrl: dataUrl,
+            content: base64, // pure base64 — matches channel-adapter convention
+            mimeType: file.type,
+            filename: file.name,
+            size: file.size,
+          });
+          return;
+        }
+
+        if (isTextReadable(file.type)) {
+          // Phase 2 (text files only): also read as UTF-8 text
+          const textReader = new FileReader();
+          textReader.onload = () => {
+            addAttachment({
+              type: "file",
+              previewUrl: dataUrl,
+              content: base64,
+              mimeType: file.type,
+              filename: file.name,
+              size: file.size,
+              textContent: textReader.result as string,
+            });
+          };
+          textReader.readAsText(file, "utf-8");
+          return;
+        }
+
+        // Binary non-image file (PDF, Office, …) — no text extraction
         addAttachment({
-          type: isImage ? "image" : "file",
+          type: "file",
           previewUrl: dataUrl,
-          content: dataUrl,
+          content: base64,
           mimeType: file.type,
           filename: file.name,
           size: file.size,
@@ -1057,7 +1209,7 @@ export function LocalChatPage() {
         addAttachment({
           type: "image",
           previewUrl: dataUrl,
-          content: dataUrl,
+          content: extractBase64FromDataUrl(dataUrl), // pure base64
           mimeType: blob.type || "image/png",
           filename: `pasted-image-${Date.now()}.png`,
           size: blob.size,

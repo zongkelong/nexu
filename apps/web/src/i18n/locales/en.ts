@@ -1293,8 +1293,8 @@ const en = {
   "localChat.emptyHint": "Select a bot, then type a message below",
   "localChat.selectChannel": "Channel",
   "localChat.channel.webchat": "WebChat",
-  "localChat.channel.feishu": "Feishu (test)",
-  "localChat.channel.wechat": "WeChat (test)",
+  "localChat.channel.feishu": "Feishu",
+  "localChat.channel.wechat": "WeChat",
 } as const;
 
 export default en;

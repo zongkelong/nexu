@@ -73,6 +73,10 @@ export class SessionService {
     );
   }
 
+  async getFullMainChatHistory(botId: string, limit?: number) {
+    return this.sessionsRuntime.getFullMainChatHistory(botId, limit);
+  }
+
   async appendCompatTranscript(input: {
     botId: string;
     sessionKey: string;

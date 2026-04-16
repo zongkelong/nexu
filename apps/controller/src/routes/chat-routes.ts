@@ -8,7 +8,10 @@ import type { ControllerBindings } from "../types.js";
 const MAX_ATTACHMENT_CONTENT_BYTES = 10_000_000;
 
 const chatAttachmentSchema = z.object({
-  type: z.enum(["image", "file"]),
+  // Only images are sent via the attachments array — non-image files are
+  // folded into the message text by the client (extractFileContentFromSource
+  // pattern used by mature channel adapters).
+  type: z.literal("image"),
   content: z.string().max(MAX_ATTACHMENT_CONTENT_BYTES),
   metadata: z
     .object({
@@ -142,6 +145,58 @@ export function registerChatRoutes(
         session,
         message: result,
       });
+    },
+  );
+
+  // GET /api/v1/chat/history - Full aggregated message history across all
+  // compacted sessions for a bot's main webchat conversation.
+  // When OpenClaw performs context compaction it creates a new UUID-named JSONL
+  // and leaves previous session files orphaned on disk.  This endpoint collects
+  // all such orphaned files plus the current main session file, sorts them
+  // chronologically, and returns the concatenated message list — giving the
+  // frontend a single continuous timeline regardless of how many compactions
+  // have occurred.
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/api/v1/chat/history",
+      tags: ["Chat"],
+      request: {
+        query: z.object({
+          botId: z.string(),
+          limit: z.coerce.number().int().min(1).max(2000).optional(),
+        }),
+      },
+      responses: {
+        200: {
+          description:
+            "Full conversation history aggregated across all compacted sessions",
+          content: {
+            "application/json": {
+              schema: z.object({
+                messages: z.array(
+                  z.object({
+                    id: z.string(),
+                    role: z.enum(["user", "assistant"]),
+                    content: z.unknown(),
+                    timestamp: z.number().nullable(),
+                    createdAt: z.string().nullable(),
+                  }),
+                ),
+                sessionCount: z.number(),
+              }),
+            },
+          },
+        },
+      },
+    }),
+    async (c) => {
+      const { botId, limit } = c.req.valid("query");
+      const result = await container.sessionService.getFullMainChatHistory(
+        botId,
+        limit,
+      );
+      return c.json(result);
     },
   );
 }
