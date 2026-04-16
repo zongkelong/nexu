@@ -21,19 +21,15 @@ type DesktopDevInspectServerOptions = {
   host: string;
   port: number;
   token: string;
-  /** Optional callback invoked when POST /shell is called from tools/dev inspect. */
-  onShowShell?: () => void;
 };
 
 type DesktopDevInspectResponse =
   | DesktopDevScreenshotResult
   | DesktopDevEvalResult
   | DesktopDevDomSnapshotResult
-  | DesktopDevRendererLogSnapshot
-  | { ok: boolean };
+  | DesktopDevRendererLogSnapshot;
 
 let desktopDevInspectServer: ReturnType<typeof createServer> | null = null;
-let registeredShowShell: (() => void) | null = null;
 
 function getDesktopDevTargetContents(): Electron.WebContents {
   const targetWindow = BrowserWindow.getAllWindows().find(
@@ -121,14 +117,6 @@ async function handleDesktopDevInspectRequest(
     return getDesktopDevRendererLogSnapshot(readLimitFromUrl(request));
   }
 
-  if (request.method === "POST" && requestUrl.pathname === "/shell") {
-    if (registeredShowShell) {
-      registeredShowShell();
-      return { ok: true };
-    }
-    throw new Error("Desktop shell command handler is not registered.");
-  }
-
   throw new Error(
     `Unsupported desktop dev inspect route: ${request.method ?? "GET"} ${requestUrl.pathname}`,
   );
@@ -139,10 +127,6 @@ export async function startDesktopDevInspectServer(
 ): Promise<void> {
   if (app.isPackaged || desktopDevInspectServer) {
     return;
-  }
-
-  if (options.onShowShell) {
-    registeredShowShell = options.onShowShell;
   }
 
   desktopDevInspectServer = createServer(async (request, response) => {
