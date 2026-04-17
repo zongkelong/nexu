@@ -113,6 +113,20 @@ const FEISHU_MENTION_TAGS_SYSTEM_LINE =
 const FEISHU_SELF_MENTION_SYSTEM_LINE =
   /\n*\[System: If user_id is "[^"]+", that mention refers to you\.\]\s*$/u;
 
+/**
+ * Text patterns identifying user-role messages synthesized by the OpenClaw
+ * runtime itself rather than sent by a real user.  They are in-context
+ * control prompts aimed at the model (e.g. triggering a memory-flush write
+ * pass before compaction) and should not appear in the visible transcript.
+ *
+ * Add new patterns conservatively — the stricter the match, the lower the
+ * risk of hiding a genuine user message that happens to paraphrase one of
+ * these prompts.
+ */
+const SynthesizedUserMessagePatterns: readonly RegExp[] = [
+  /^Pre-compaction memory flush\. Store durable memories now/u,
+];
+
 function sessionMetadataPath(filePath: string): string {
   return filePath.replace(/\.jsonl$/, ".meta.json");
 }
@@ -889,8 +903,22 @@ export class SessionsRuntime {
         continue;
       }
 
+      // Media blocks (image / file) are user-visible content — if the user
+      // sends just an image with no accompanying text, the text block is
+      // reduced to the empty string by the sanitizer and would otherwise
+      // leave `hasVisibleContent = false`, causing the whole message to be
+      // dropped from the history endpoint.  Treat them as visible so the
+      // bubble (and its attachment card/preview) persists through polling
+      // refreshes.
+      if (blockType === "image" || blockType === "file") {
+        normalizedBlocks.push(block);
+        hasVisibleContent = true;
+        continue;
+      }
+
       // Preserve unknown blocks for forward compatibility, but only text,
-      // replyContext, and tool blocks count as visible transcript content.
+      // replyContext, tool, image and file blocks count as visible transcript
+      // content.
       normalizedBlocks.push(block);
     }
 
@@ -907,6 +935,14 @@ export class SessionsRuntime {
       return normalizedText.length > 0
         ? [{ type: "text", text: normalizedText }]
         : [];
+    }
+
+    // OpenClaw injects synthetic user-role messages to trigger in-context
+    // behaviors (pre-compaction memory flush, system prompts, heartbeats).
+    // These are internal control signals aimed at the model, not real user
+    // input — filtering them out keeps the visible transcript clean.
+    if (SynthesizedUserMessagePatterns.some((re) => re.test(text))) {
+      return [];
     }
 
     const sanitized = this.sanitizeUserMessageText(text, channelType);

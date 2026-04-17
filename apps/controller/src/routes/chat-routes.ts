@@ -8,10 +8,11 @@ import type { ControllerBindings } from "../types.js";
 const MAX_ATTACHMENT_CONTENT_BYTES = 10_000_000;
 
 const chatAttachmentSchema = z.object({
-  // Only images are sent via the attachments array — non-image files are
-  // folded into the message text by the client (extractFileContentFromSource
-  // pattern used by mature channel adapters).
-  type: z.literal("image"),
+  // Images go through OpenClaw's chat.send attachments pipeline unchanged.
+  // Files (PDF / text-readable) are extracted on the controller and folded
+  // into message text as <file>…</file> blocks before forwarding; OpenClaw's
+  // gateway RPC itself only carries images over the wire.
+  type: z.enum(["image", "file"]),
   content: z.string().max(MAX_ATTACHMENT_CONTENT_BYTES),
   metadata: z
     .object({
@@ -52,7 +53,10 @@ export function registerChatRoutes(
   app: OpenAPIHono<ControllerBindings>,
   container: ControllerContainer,
 ): void {
-  const chatService = new ChatService(container.gatewayService);
+  const chatService = new ChatService(
+    container.gatewayService,
+    container.attachmentStore,
+  );
 
   // GET /api/v1/chat/session - Resolve a named sessionKey to a real session
   app.openapi(

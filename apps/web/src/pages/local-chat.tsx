@@ -8,7 +8,6 @@ import {
   FileSpreadsheet,
   FileText,
   Loader2,
-  MessageSquare,
   Paperclip,
   Send,
   Sparkles,
@@ -53,21 +52,15 @@ interface PendingAttachment {
   /** data: URL — used only for rendering thumbnails / previews in the tray */
   previewUrl: string;
   /**
-   * Pure base64-encoded content (NO data: URL prefix).
-   * For images this is sent via the `attachments` array to model vision.
-   * For text files the content is read separately into `textContent` instead.
+   * Pure base64-encoded content (NO data: URL prefix).  Sent as-is to the
+   * controller, which splits images (forwarded to OpenClaw's chat.send
+   * attachment pipeline) from files (extracted server-side into `<file>`
+   * blocks folded into the message body).
    */
   content: string;
   mimeType: string;
   filename?: string;
   size?: number;
-  /**
-   * Extracted UTF-8 text for text-readable files (txt, csv, json, code …).
-   * When present, the file content is folded into the message body rather
-   * than sent as a binary attachment — mirroring how mature channel adapters
-   * handle documents via extractFileContentFromSource().
-   */
-  textContent?: string;
 }
 
 /** Typed content blocks used for rendering chat bubbles */
@@ -76,26 +69,12 @@ type ContentBlock =
   | { kind: "image"; src: string; mimeType?: string }
   | { kind: "file"; filename: string; mimeType: string; size?: number };
 
-// Channel definitions --------------------------------------------------------
-
-type ChannelId = "webchat" | "feishu" | "wechat";
-
-interface ChannelOption {
-  id: ChannelId;
-  sessionKeySuffix: string;
-}
-
-const CHANNEL_OPTIONS: ChannelOption[] = [
-  { id: "webchat", sessionKeySuffix: ":main" },
-  { id: "feishu", sessionKeySuffix: ":feishu:local" },
-  { id: "wechat", sessionKeySuffix: ":wechat:local" },
-];
-
-// CHANNEL_OPTIONS is a non-empty tuple — the first element always exists.
-const DEFAULT_CHANNEL: ChannelOption = CHANNEL_OPTIONS[0] as ChannelOption;
-
-function buildSessionKey(botId: string, channel: ChannelOption): string {
-  return `agent:${botId}${channel.sessionKeySuffix}`;
+// Every local chat message targets the agent's main webchat session —
+// `chat.send` never routes to Feishu / WeChat ingress paths, so there is no
+// reason to expose a channel picker to the user.  Keep the main-session key
+// derivation in one place.
+function buildMainSessionKey(botId: string): string {
+  return `agent:${botId}:main`;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,24 +83,22 @@ function buildSessionKey(botId: string, channel: ChannelOption): string {
 
 /**
  * Maximum raw file size accepted for upload.
- * OpenClaw's parseMessageWithAttachments uses a 5 MB decoded-bytes limit, so
- * 5 MB raw → ~6.7 MB base64 comfortably fits.  We keep 7.5 MB to allow for
- * slightly larger images while still staying under OpenClaw's hard cap.
+ * OpenClaw's parseMessageWithAttachments uses a 5 MB decoded-bytes limit for
+ * images; the controller's attachment-extractor also caps files at 5 MB.
+ * 7.5 MB raw base64 comfortably sits under both hard caps while accepting
+ * slightly larger images.
  */
 const MAX_FILE_BYTES = 7_500_000;
 
-/**
- * Maximum number of UTF-8 characters extracted from a text file to include
- * in the message body.  Roughly 4 k tokens — enough for typical source files,
- * CSV snippets, and JSON payloads without bloating the context window.
- */
-const MAX_FILE_TEXT_CHARS = 4_000;
-
 // Polling / session-discovery timing constants
-/** How often to poll for a new assistant message (ms) */
-const POLL_INTERVAL_MS = 2_000;
-/** Maximum number of polling attempts before giving up (~80 s) */
-const POLL_MAX_ATTEMPTS = 40;
+/** How often to poll for new messages while an agent turn is in flight (ms). */
+const POLL_INTERVAL_MS = 750;
+/**
+ * Maximum polling attempts before giving up even if the agent keeps
+ * producing messages — safety net against runaway tool loops.
+ * 240 × 750 ms = 180 s.
+ */
+const POLL_MAX_ATTEMPTS = 240;
 /** Interval between session-discovery retries after send (ms) */
 const SESSION_DISCOVERY_INTERVAL_MS = 500;
 /** Maximum number of session-discovery attempts after send */
@@ -131,6 +108,248 @@ const SESSION_DISCOVERY_MAX_ATTEMPTS = 6;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Matches a `<file name="…" mime="…" [size="…"] [path="…"]>…</file>`
+ * envelope.  The controller's attachment-extractor (and OpenClaw's own
+ * extractFileBlocks) emit this shape; attributes appear in any order so we
+ * parse the opening tag as an attribute bag rather than positional groups.
+ * In the chat bubble we render a file card — the `{extracted text}` body
+ * and the `path` attribute are for the model only, never displayed.
+ */
+const FILE_BLOCK_PATTERN = /<file\s+([^>]*?)>([\s\S]*?)<\/file>/giu;
+const FILE_ATTR_PATTERN = /(\w+)="([^"]*)"/gu;
+
+function parseFileBlockAttrs(attrText: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of attrText.matchAll(FILE_ATTR_PATTERN)) {
+    const key = m[1];
+    const value = m[2];
+    if (key && value != null) out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * Legacy `[附件: <filename> (<size>，二进制文件，内容无法直接传递)]` marker
+ * that earlier webchat builds folded into fullText.  Kept for backward
+ * compatibility so existing session history still renders as file cards.
+ */
+const LEGACY_BINARY_MARKER =
+  /\[附件: (.+?) \(([^，]+)，二进制文件，内容无法直接传递\)\]/gu;
+
+/**
+ * Neutral marker `[附件: <filename> (<size>)]` used by the controller as a
+ * fallback when extraction is skipped (unsupported MIME, empty content, …).
+ */
+const NEUTRAL_ATTACHMENT_MARKER = /\[附件: (.+?)(?: \(([^)]+)\))?\]/gu;
+
+/**
+ * Tool-use hint the controller appends after persisting file attachments
+ * ("[Tool hint: the <file> blocks above include a `path` attribute ...]").
+ * It's for the model's benefit; rendering it in the chat bubble is noise.
+ */
+const TOOL_HINT_PATTERN = /\[Tool hint: the <file> blocks above[^\]]*?\]/gu;
+
+/** Convert a human-readable size label (e.g. "143.8 KB") back to bytes. */
+function parseSizeLabel(label: string): number | undefined {
+  const m = label.trim().match(/^([\d.]+)\s*(B|KB|MB)$/iu);
+  if (!m?.[1]) return undefined;
+  const value = Number(m[1]);
+  if (!Number.isFinite(value)) return undefined;
+  const unit = (m[2] ?? "").toUpperCase();
+  if (unit === "B") return Math.round(value);
+  if (unit === "KB") return Math.round(value * 1024);
+  if (unit === "MB") return Math.round(value * 1024 * 1024);
+  return undefined;
+}
+
+function decodeXmlAttr(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+/**
+ * Infer a MIME type from a filename extension.  Used when rendering legacy
+ * `[附件: filename (size)]` markers that don't carry a MIME attribute —
+ * without this, every historical file attachment would fall back to
+ * `application/octet-stream` and render with the generic blue file icon,
+ * while the optimistic bubble (which knew the real MIME) rendered the
+ * PDF-red / spreadsheet-green variants.  Keep the table small and focused
+ * on formats `fileIconProps` actually distinguishes.
+ */
+function inferMimeFromFilename(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  if (dot < 0) return "application/octet-stream";
+  const ext = filename.slice(dot + 1).toLowerCase();
+  switch (ext) {
+    case "pdf":
+      return "application/pdf";
+    case "csv":
+      return "text/csv";
+    case "xls":
+      return "application/vnd.ms-excel";
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+interface Replacement {
+  start: number;
+  end: number;
+  block: ContentBlock;
+}
+
+function collectFileBlockReplacements(text: string): Replacement[] {
+  const out: Replacement[] = [];
+  for (const m of text.matchAll(FILE_BLOCK_PATTERN)) {
+    const start = m.index ?? 0;
+    const attrs = parseFileBlockAttrs(m[1] ?? "");
+    const sizeRaw = attrs.size;
+    const sizeNum =
+      sizeRaw && /^\d+$/.test(sizeRaw) ? Number(sizeRaw) : undefined;
+    out.push({
+      start,
+      end: start + m[0].length,
+      block: {
+        kind: "file",
+        filename: decodeXmlAttr(attrs.name ?? "file"),
+        mimeType: decodeXmlAttr(attrs.mime ?? "application/octet-stream"),
+        size: sizeNum,
+      },
+    });
+  }
+  return out;
+}
+
+function collectMarkerReplacements(
+  text: string,
+  pattern: RegExp,
+  filenameGroup = 1,
+  sizeGroup = 2,
+  coveredRanges: Array<[number, number]> = [],
+): Replacement[] {
+  const out: Replacement[] = [];
+  const isCovered = (start: number, end: number) =>
+    coveredRanges.some(([a, b]) => start >= a && end <= b);
+  for (const m of text.matchAll(pattern)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    if (isCovered(start, end)) continue;
+    const filename = (m[filenameGroup] ?? "file").trim();
+    out.push({
+      start,
+      end,
+      block: {
+        kind: "file",
+        filename,
+        mimeType: inferMimeFromFilename(filename),
+        size: parseSizeLabel(m[sizeGroup] ?? ""),
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * Return true when `msg` looks like a terminal assistant reply — an
+ * assistant-role message that carries at least one non-empty text block
+ * and *no* pending tool call.  OpenClaw's agent loop closes every
+ * successful turn with exactly this shape; intermediate steps (thinking-
+ * only, toolCall-only, or text+toolCall mid-turn narration) do not
+ * qualify.  Used as the authoritative "turn finished" signal for polling
+ * teardown — a gap-based heuristic can't distinguish a long tool call
+ * from a finished turn.
+ */
+function isAssistantTextReply(msg: ChatMsg): boolean {
+  if (msg.role !== "assistant") return false;
+  const c = msg.content;
+  if (typeof c === "string") return c.trim().length > 0;
+  if (!Array.isArray(c)) return false;
+  let hasText = false;
+  for (const entry of c) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const block = entry as Record<string, unknown>;
+    const tag = typeof block.type === "string" ? block.type : block.kind;
+    // Any pending tool invocation means more messages are coming —
+    // not a terminal reply.
+    if (tag === "toolCall" || tag === "tool_use") return false;
+    if (tag === "text") {
+      const text = block.text;
+      if (typeof text === "string" && text.trim().length > 0) hasText = true;
+    }
+  }
+  return hasText;
+}
+
+/**
+ * Convert a raw message text into ContentBlocks, substituting `<file>` /
+ * legacy `[附件: …]` markers with file cards.  Surrounding prose becomes
+ * text blocks; if nothing matched, the whole string comes back as a single
+ * text block.  Overlapping matches are deduped (file-block > legacy marker
+ * > neutral marker).  Tool-use hints are stripped entirely — they are not
+ * user-facing content.
+ */
+function splitTextOnAttachmentMarkers(text: string): ContentBlock[] {
+  const normalized = text.replace(TOOL_HINT_PATTERN, "");
+  return splitNormalizedText(normalized);
+}
+
+function splitNormalizedText(text: string): ContentBlock[] {
+  const fileBlockReplacements = collectFileBlockReplacements(text);
+  const fileBlockRanges = fileBlockReplacements.map(
+    (r) => [r.start, r.end] as [number, number],
+  );
+  const legacyReplacements = collectMarkerReplacements(
+    text,
+    LEGACY_BINARY_MARKER,
+    1,
+    2,
+    fileBlockRanges,
+  );
+  const coveredSoFar = [
+    ...fileBlockRanges,
+    ...legacyReplacements.map((r) => [r.start, r.end] as [number, number]),
+  ];
+  const neutralReplacements = collectMarkerReplacements(
+    text,
+    NEUTRAL_ATTACHMENT_MARKER,
+    1,
+    2,
+    coveredSoFar,
+  );
+
+  const replacements = [
+    ...fileBlockReplacements,
+    ...legacyReplacements,
+    ...neutralReplacements,
+  ].sort((a, b) => a.start - b.start);
+
+  if (replacements.length === 0) {
+    return text ? [{ kind: "text", text }] : [];
+  }
+
+  const out: ContentBlock[] = [];
+  let cursor = 0;
+  for (const r of replacements) {
+    if (r.start > cursor) {
+      const leading = text.slice(cursor, r.start).replace(/\s+$/u, "");
+      if (leading) out.push({ kind: "text", text: leading });
+    }
+    out.push(r.block);
+    cursor = r.end;
+  }
+  if (cursor < text.length) {
+    const trailing = text.slice(cursor).replace(/^\s+/u, "");
+    if (trailing) out.push({ kind: "text", text: trailing });
+  }
+  return out;
+}
+
 /** Parse any message content shape into typed ContentBlock[] for rendering */
 function extractContent(msg: ChatMsg): ContentBlock[] {
   const c = msg.content;
@@ -138,7 +357,7 @@ function extractContent(msg: ChatMsg): ContentBlock[] {
   // Plain string — could be text or a raw base64 image DataURL
   if (typeof c === "string") {
     if (c.startsWith("data:image/")) return [{ kind: "image", src: c }];
-    return [{ kind: "text", text: c }];
+    return splitTextOnAttachmentMarkers(c);
   }
 
   // Anthropic-style content block array (from JSONL history)
@@ -154,12 +373,23 @@ function extractContent(msg: ChatMsg): ContentBlock[] {
     return (c as Array<Record<string, unknown>>).flatMap(
       (b): ContentBlock[] => {
         if (b.type === "text") {
-          return [{ kind: "text" as const, text: String(b.text ?? "") }];
+          return splitTextOnAttachmentMarkers(String(b.text ?? ""));
         }
         if (b.type === "image") {
+          // Two persisted shapes appear in OpenClaw session JSONLs:
+          //   1. Anthropic nested: `{type:"image", source:{type:"base64",
+          //      data, media_type}}` — what reaches the model / provider.
+          //   2. OpenClaw flat: `{type:"image", data, mimeType}` — the
+          //      shape `parseMessageWithAttachments` emits at chat.send
+          //      time and what the gateway writes back to disk for inbound
+          //      webchat images.
+          // Support both so legacy and current messages render identically.
           const src = b.source as Record<string, unknown> | undefined;
-          const data = String(src?.data ?? "");
-          const mediaType = String(src?.media_type ?? "image/jpeg");
+          const data = String(src?.data ?? b.data ?? "");
+          const mediaType = String(
+            src?.media_type ?? b.mimeType ?? "image/jpeg",
+          );
+          if (!data) return [];
           return [
             { kind: "image" as const, src: `data:${mediaType};base64,${data}` },
           ];
@@ -181,9 +411,9 @@ function extractContent(msg: ChatMsg): ContentBlock[] {
 
   // Object with a text field
   if (typeof c === "object" && c !== null && "text" in c) {
-    return [
-      { kind: "text", text: String((c as Record<string, unknown>).text ?? "") },
-    ];
+    return splitTextOnAttachmentMarkers(
+      String((c as Record<string, unknown>).text ?? ""),
+    );
   }
 
   return [];
@@ -224,27 +454,6 @@ function extractBase64FromDataUrl(dataUrl: string): string {
     return dataUrl.slice(commaIdx + 1);
   }
   return dataUrl;
-}
-
-/**
- * Returns true for MIME types whose content can be meaningfully read as
- * UTF-8 text and included in the message body.
- * Matches the categories handled by OpenClaw's extractFileContentFromSource().
- */
-function isTextReadable(mimeType: string): boolean {
-  if (mimeType.startsWith("text/")) return true;
-  const textSubtypes = new Set([
-    "application/json",
-    "application/xml",
-    "application/javascript",
-    "application/typescript",
-    "application/x-yaml",
-    "application/toml",
-    "application/csv",
-    "application/x-sh",
-    "application/x-shellscript",
-  ]);
-  return textSubtypes.has(mimeType);
 }
 
 /** Pick a lucide icon and colour based on MIME type */
@@ -594,80 +803,6 @@ function BotSelector({
 }
 
 // ---------------------------------------------------------------------------
-// Channel selector dropdown
-// ---------------------------------------------------------------------------
-
-function ChannelSelector({
-  selected,
-  onSelect,
-}: {
-  selected: ChannelOption;
-  onSelect: (channel: ChannelOption) => void;
-}) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "flex items-center gap-2 rounded-xl border px-3 py-2 text-[13px] font-medium transition-colors",
-          "border-border bg-surface-1 text-text-primary hover:bg-surface-2",
-          open && "bg-surface-2",
-        )}
-        title={t("localChat.selectChannel")}
-      >
-        <MessageSquare size={14} className="text-text-muted" />
-        <span>{t(`localChat.channel.${selected.id}`)}</span>
-        <ChevronDown
-          size={13}
-          className={cn(
-            "text-text-muted transition-transform",
-            open && "rotate-180",
-          )}
-        />
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-1.5 min-w-[160px] rounded-xl border border-border bg-surface-1 py-1 shadow-[0_8px_24px_rgba(15,23,42,0.12)]">
-          {CHANNEL_OPTIONS.map((ch) => (
-            <button
-              key={ch.id}
-              type="button"
-              onClick={() => {
-                onSelect(ch);
-                setOpen(false);
-              }}
-              className={cn(
-                "flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors hover:bg-surface-2",
-                selected.id === ch.id && "font-medium text-accent",
-              )}
-            >
-              <span className="truncate">
-                {t(`localChat.channel.${ch.id}`)}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -698,8 +833,6 @@ export function LocalChatPage() {
   const queryClient = useQueryClient();
 
   const [selectedBot, setSelectedBot] = useState<BotItem | null>(null);
-  const [selectedChannel, setSelectedChannel] =
-    useState<ChannelOption>(DEFAULT_CHANNEL);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -714,7 +847,7 @@ export function LocalChatPage() {
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  // Tracks the current bot+channel combo so async effects can bail if stale
+  // Tracks the currently-selected bot so async effects can bail if stale.
   const contextKeyRef = useRef<string>("");
   // True while a sendMessage call is in flight — prevents the history-load
   // effect from overwriting the optimistic bubble with stale history.
@@ -770,11 +903,25 @@ export function LocalChatPage() {
   }, []);
 
   const startPolling = useCallback(
-    (botId: string, currentAssistantCount: number) => {
+    (botId: string, baselineAssistantCount: number) => {
       stopPolling();
-      assistantCountRef.current = currentAssistantCount;
+      assistantCountRef.current = baselineAssistantCount;
       setWaitingReply(true);
       let attempts = 0;
+      // Tracks the latest message-array length so we can flush UI updates on
+      // every change — an agent turn typically writes many messages
+      // (thinking → toolCall → … → final text) and the user must see ALL
+      // of them, especially the terminal text.
+      let lastSeenTotal = -1;
+      // Terminal detection is only valid AFTER we've observed a new
+      // assistant message in this turn.  Without this guard, any follow-up
+      // message to a conversation that already ended on an assistant text
+      // reply would match `isAssistantTextReply(lastMsg)` on the very first
+      // poll (before OpenClaw has even written the user's new entry) and
+      // kill polling immediately — the user's new turn would never get
+      // picked up.  `firstNewAssistantSeen` ensures we only bail out on
+      // text replies *produced during this turn*.
+      let firstNewAssistantSeen = false;
       pollingRef.current = setInterval(async () => {
         attempts++;
         try {
@@ -783,18 +930,34 @@ export function LocalChatPage() {
           });
           const latest = ((data as Record<string, unknown>)?.messages ??
             []) as ChatMsg[];
-          const newAssistantCount = latest.filter(
-            (m) => m.role === "assistant",
-          ).length;
-          if (newAssistantCount > assistantCountRef.current) {
-            // Update baseline BEFORE stopping so the next send has the right count
-            assistantCountRef.current = newAssistantCount;
-            setMessages(latest);
-            void queryClient.invalidateQueries({
-              queryKey: ["sidebar-sessions"],
-            });
-            stopPolling();
-            return;
+
+          if (latest.length !== lastSeenTotal) {
+            lastSeenTotal = latest.length;
+            const newAssistantCount = latest.filter(
+              (m) => m.role === "assistant",
+            ).length;
+            if (newAssistantCount > assistantCountRef.current) {
+              assistantCountRef.current = newAssistantCount;
+              firstNewAssistantSeen = true;
+              setMessages(latest);
+              void queryClient.invalidateQueries({
+                queryKey: ["sidebar-sessions"],
+              });
+            }
+          }
+
+          // Terminal signal: after at least one new assistant message has
+          // shown up this turn, the very last entry in history is an
+          // `assistant` message with actual text content and no pending
+          // tool call.  OpenClaw always closes a successful turn with
+          // exactly this shape; stopping immediately keeps the typing
+          // indicator from lingering after the reply is rendered.
+          if (firstNewAssistantSeen) {
+            const lastMsg = latest[latest.length - 1];
+            if (lastMsg && isAssistantTextReply(lastMsg)) {
+              stopPolling();
+              return;
+            }
           }
         } catch {
           // swallow polling errors
@@ -808,7 +971,7 @@ export function LocalChatPage() {
   // Cleanup on unmount
   useEffect(() => () => stopPolling(), [stopPolling]);
 
-  // ── Session discovery: load full history when bot/channel changes ────────
+  // ── Session discovery: load full history when the bot changes ───────────
   // Calls the aggregated history endpoint which transparently spans all
   // compacted sessions — the user always sees one continuous conversation.
 
@@ -816,13 +979,11 @@ export function LocalChatPage() {
     if (!selectedBot) return;
 
     const botId = selectedBot.id;
-    const sessionKey = buildSessionKey(botId, selectedChannel);
-    const ctxKey = `${botId}::${sessionKey}`;
+    const ctxKey = botId;
     contextKeyRef.current = ctxKey;
 
     void (async () => {
       try {
-        // Load the full cross-session history immediately.
         const { data: histData } = await getApiV1ChatHistory({
           query: { botId, limit: 500 },
         });
@@ -838,11 +999,8 @@ export function LocalChatPage() {
           ).length;
         }
 
-        // Also resolve the current session ID so we can use it for send flow.
-        // Always look up the main session — local chat routes all messages to
-        // agent:{botId}:main regardless of the channel selector.
         const { data: sessionData } = await getApiV1ChatSession({
-          query: { botId, sessionKey: `agent:${botId}:main` },
+          query: { botId, sessionKey: buildMainSessionKey(botId) },
         });
         if (contextKeyRef.current !== ctxKey) return;
         const sid = sessionData?.session?.id;
@@ -851,26 +1009,14 @@ export function LocalChatPage() {
         // silently ignore — session simply doesn't exist yet
       }
     })();
-  }, [selectedBot, selectedChannel]);
+  }, [selectedBot]);
 
-  // ── Bot / channel selection ───────────────────────────────────────────────
+  // ── Bot selection ─────────────────────────────────────────────────────────
 
   const handleSelectBot = useCallback(
     (bot: BotItem) => {
       scrollInstantRef.current = true;
       setSelectedBot(bot);
-      setSessionId(null);
-      setMessages([]);
-      setPendingAttachments([]);
-      stopPolling();
-    },
-    [stopPolling],
-  );
-
-  const handleSelectChannel = useCallback(
-    (channel: ChannelOption) => {
-      scrollInstantRef.current = true;
-      setSelectedChannel(channel);
       setSessionId(null);
       setMessages([]);
       setPendingAttachments([]);
@@ -900,9 +1046,13 @@ export function LocalChatPage() {
         type: "text" | "image" | "file";
         content: string;
         metadata?: { mimeType?: string; filename?: string; size?: number };
-        // Only images go via the attachments array; file content goes in `content`.
+        /**
+         * Images AND files share this array.  The controller splits them:
+         * images → OpenClaw chat.send attachments pipeline, files → server-
+         * side extraction + `<file>…</file>` fold-in.
+         */
         attachments?: Array<{
-          type: "image";
+          type: "image" | "file";
           content: string;
           metadata?: { mimeType?: string; filename?: string; size?: number };
         }>;
@@ -912,12 +1062,8 @@ export function LocalChatPage() {
       if (!selectedBot) return;
 
       const botId = selectedBot.id;
-      const sessionKey = buildSessionKey(botId, selectedChannel);
-      const ctxKey = `${botId}::${sessionKey}`;
-      // Local chat always routes to the main session regardless of the channel
-      // selector.  The channel selector exists to route *history views* and for
-      // future channel-aware send support, but chat.send always uses :main today.
-      const mainSessionKey = `agent:${botId}:main`;
+      const ctxKey = botId;
+      const mainSessionKey = buildMainSessionKey(botId);
 
       // Mark send as active BEFORE the optimistic update so the history-load
       // effect cannot overwrite the optimistic bubble if it fires concurrently.
@@ -944,7 +1090,7 @@ export function LocalChatPage() {
         await postApiV1ChatLocal({
           body: {
             botId,
-            sessionKey,
+            sessionKey: mainSessionKey,
             message: {
               type: msgContent.type,
               content: msgContent.content,
@@ -1013,7 +1159,7 @@ export function LocalChatPage() {
         activeSendRef.current = false;
       }
     },
-    [selectedBot, selectedChannel, sessionId, startPolling],
+    [selectedBot, sessionId, startPolling],
   );
 
   const handleSend = useCallback(async () => {
@@ -1027,68 +1173,45 @@ export function LocalChatPage() {
 
     const optimisticBlocks = buildOptimisticBlocks(text, atts);
 
-    // ── Mirror mature channel-adapter pattern ────────────────────────────────
-    // Images  → sent via `attachments[]` → OpenClaw normalises + MIME-sniffs
-    //           → Anthropic vision content block.
-    // Files   → text content folded into message body (extractFileContentFromSource
-    //           equivalent); binary files get a filename/size note so the model
-    //           at least knows what was attached.
-    // ────────────────────────────────────────────────────────────────────────
-    const imageAtts = atts.filter((a) => a.type === "image");
-    const fileAtts = atts.filter((a) => a.type === "file");
-
-    // Build enriched message text: append extracted file content / filename notes.
-    let fullText = text;
-    for (const f of fileAtts) {
-      if (f.textContent !== undefined) {
-        // Text-readable file — include content as a fenced code block
-        const excerpt = f.textContent.slice(0, MAX_FILE_TEXT_CHARS);
-        const truncated = f.textContent.length > MAX_FILE_TEXT_CHARS;
-        fullText += `\n\n[文件: ${f.filename ?? "file"}]\n\`\`\`\n${excerpt}${truncated ? "\n…（内容过长，已截断）" : ""}\n\`\`\``;
-      } else {
-        // Binary file (PDF, Office, …) — model can't read content, note it
-        fullText += `\n\n[附件: ${f.filename ?? "file"} (${formatBytes(f.size ?? 0)}，二进制文件，内容无法直接传递)]`;
-      }
-    }
-
-    if (imageAtts.length === 0) {
-      // Pure text — may include appended file content
-      await sendMessage({ type: "text", content: fullText }, optimisticBlocks);
-    } else if (
-      imageAtts.length === 1 &&
-      !fullText.trim() &&
-      fileAtts.length === 0 &&
-      imageAtts[0]
-    ) {
-      // Single image, no text, no files — legacy single-image path
-      const singleImage = imageAtts[0];
+    // Transport model: hand the attachments to the controller verbatim.
+    // The controller then:
+    //   - Forwards images through OpenClaw's chat.send attachments pipeline.
+    //   - Extracts file content (PDF / text-readable) and folds it into the
+    //     message body as <file>…</file> blocks; unsupported / binary files
+    //     degrade to a `[附件: filename]` marker.
+    // Legacy single-image fast path: one image with no text, no other files.
+    const onlyImage = atts[0];
+    if (atts.length === 1 && onlyImage?.type === "image" && !text) {
       await sendMessage(
         {
           type: "image",
-          content: singleImage.content, // already pure base64
-          metadata: { mimeType: singleImage.mimeType },
+          content: onlyImage.content,
+          metadata: { mimeType: onlyImage.mimeType },
         },
         optimisticBlocks,
       );
-    } else {
-      // Images + optional text (file content already folded into fullText)
-      await sendMessage(
-        {
-          type: "text",
-          content: fullText,
-          attachments: imageAtts.map((a) => ({
-            type: "image" as const, // only images go via the attachments array
-            content: a.content, // pure base64
-            metadata: {
-              mimeType: a.mimeType,
-              filename: a.filename,
-              size: a.size,
-            },
-          })),
-        },
-        optimisticBlocks,
-      );
+      return;
     }
+
+    await sendMessage(
+      {
+        type: "text",
+        content: text,
+        attachments:
+          atts.length > 0
+            ? atts.map((a) => ({
+                type: a.type,
+                content: a.content,
+                metadata: {
+                  mimeType: a.mimeType,
+                  filename: a.filename,
+                  size: a.size,
+                },
+              }))
+            : undefined,
+      },
+      optimisticBlocks,
+    );
   }, [
     input,
     pendingAttachments,
@@ -1113,13 +1236,13 @@ export function LocalChatPage() {
   /**
    * Read a Blob/File and push it into pendingAttachments.
    *
-   * Following the mature channel-adapter pattern:
-   * - Images  → pure base64 in `content` (sent via `attachments` to model vision)
-   * - Text files → pure base64 in `content` + UTF-8 text in `textContent`
-   *               (text is folded into the message body, mirroring
-   *                extractFileContentFromSource() in channel adapters)
-   * - Other binary → pure base64 in `content`, no `textContent`
-   *               (filename + size appended to message as a note)
+   * All files (images, PDFs, text-readable) travel as pure base64 in
+   * `content`.  The controller decides how to handle each type:
+   *   - Images      → forwarded to OpenClaw's chat.send attachment pipeline.
+   *   - PDF / text  → text extracted server-side and folded into the prompt
+   *                   as a `<file>…</file>` block.
+   *   - Unsupported → falls back to a neutral `[附件: filename]` marker so
+   *                   the user still sees the card.
    */
   const readFileBlob = useCallback(
     (file: File) => {
@@ -1131,48 +1254,15 @@ export function LocalChatPage() {
       }
       const isImage = file.type.startsWith("image/");
 
-      // Phase 1: read as DataURL — gives us preview URL + base64 content
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
         const base64 = extractBase64FromDataUrl(dataUrl);
-
-        if (isImage) {
-          addAttachment({
-            type: "image",
-            previewUrl: dataUrl,
-            content: base64, // pure base64 — matches channel-adapter convention
-            mimeType: file.type,
-            filename: file.name,
-            size: file.size,
-          });
-          return;
-        }
-
-        if (isTextReadable(file.type)) {
-          // Phase 2 (text files only): also read as UTF-8 text
-          const textReader = new FileReader();
-          textReader.onload = () => {
-            addAttachment({
-              type: "file",
-              previewUrl: dataUrl,
-              content: base64,
-              mimeType: file.type,
-              filename: file.name,
-              size: file.size,
-              textContent: textReader.result as string,
-            });
-          };
-          textReader.readAsText(file, "utf-8");
-          return;
-        }
-
-        // Binary non-image file (PDF, Office, …) — no text extraction
         addAttachment({
-          type: "file",
+          type: isImage ? "image" : "file",
           previewUrl: dataUrl,
           content: base64,
-          mimeType: file.type,
+          mimeType: file.type || "application/octet-stream",
           filename: file.name,
           size: file.size,
         });
@@ -1263,10 +1353,6 @@ export function LocalChatPage() {
                 onSelect={handleSelectBot}
               />
             )}
-            <ChannelSelector
-              selected={selectedChannel}
-              onSelect={handleSelectChannel}
-            />
           </div>
         </div>
       </div>

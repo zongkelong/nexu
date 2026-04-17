@@ -6676,7 +6676,8 @@
                             "type": {
                               "type": "string",
                               "enum": [
-                                "image"
+                                "image",
+                                "file"
                               ]
                             },
                             "content": {

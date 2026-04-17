@@ -2276,7 +2276,7 @@ export type PostApiV1ChatLocalData = {
                 size?: number;
             };
             attachments?: Array<{
-                type: 'image';
+                type: 'image' | 'file';
                 content: string;
                 metadata?: {
                     mimeType?: string;
