@@ -18,11 +18,14 @@ import {
   copyStaticSkills,
   resolveCuratedSkillsToInstall,
 } from "./curated-skills.js";
+import { classifyError } from "./install-queue.js";
+import { ensureNpmAvailable, runNpmInstall } from "./npm-runner.js";
 import type { SkillDb, SkillRecord } from "./skill-db.js";
 import type {
   CatalogMeta,
   InstalledSkill,
   MinimalSkill,
+  QueueErrorCode,
   SkillSource,
   SkillhubCatalogData,
 } from "./types.js";
@@ -241,11 +244,12 @@ export class CatalogManager {
       .map((r) => {
         const skillMdDir = this.resolveSkillMdDir(r);
         const skillMdPath = resolve(skillMdDir, "SKILL.md");
-        const { name, description } = this.parseFrontmatter(skillMdPath);
+        const { name, catalogName, description } =
+          this.parseFrontmatter(skillMdPath);
         return {
           slug: r.slug,
           source: r.source,
-          name: name || r.slug,
+          name: catalogName || name || r.slug,
           description: description || "",
           installedAt: r.installedAt,
           agentId: r.agentId ?? null,
@@ -560,22 +564,50 @@ export class CatalogManager {
     return { installed, skipped: toSkip, failed };
   }
 
-  async importSkillZip(
-    zipBuffer: Buffer,
-  ): Promise<{ ok: boolean; slug?: string; error?: string }> {
+  async importSkillZip(zipBuffer: Buffer): Promise<{
+    ok: boolean;
+    slug?: string;
+    error?: string;
+    errorCode?: QueueErrorCode;
+  }> {
     this.log("info", "importing custom skill from zip");
     const result = extractZip(zipBuffer, this.skillsDir);
-    if (result.ok && result.slug) {
-      this.db.recordInstall(result.slug, "custom");
-      this.log("info", `custom skill imported: ${result.slug}`);
-      await this.installSkillDeps(
-        resolve(this.skillsDir, result.slug),
-        result.slug,
-      );
-    } else {
+    if (!result.ok || !result.slug) {
       this.log("error", `custom skill import failed: ${result.error}`);
+      return result;
     }
-    return result;
+
+    // Install dependencies BEFORE recording in DB. If deps fail, roll back
+    // the extracted files and return a typed errorCode without writing a
+    // ledger entry — keeping disk, DB, and runtime consistently in the
+    // "not installed" state so a Retry starts from a clean slate.
+    const slug = result.slug;
+    const skillDir = resolve(this.skillsDir, slug);
+    try {
+      await this.installSkillDeps(skillDir, slug);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const errorCode = classifyError(message);
+      try {
+        rmSync(skillDir, { recursive: true, force: true });
+      } catch (cleanupErr) {
+        const cleanupMsg =
+          cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+        this.log(
+          "warn",
+          `custom skill cleanup failed slug=${slug}: ${cleanupMsg}`,
+        );
+      }
+      this.log(
+        "error",
+        `custom skill deps failed slug=${slug} code=${errorCode}: ${message}`,
+      );
+      return { ok: false, error: message, errorCode };
+    }
+
+    this.db.recordInstall(slug, "custom");
+    this.log("info", `custom skill imported: ${slug}`);
+    return { ok: true, slug };
   }
 
   /**
@@ -677,14 +709,16 @@ export class CatalogManager {
   ): Promise<void> {
     if (!existsSync(resolve(skillDir, "package.json"))) return;
 
+    await ensureNpmAvailable();
+
     this.log("info", `installing npm deps: ${slug}`);
     try {
-      const npmArgs = ["install", "--production", "--no-audit", "--no-fund"];
-      await execFileAsync("npm", npmArgs, { cwd: skillDir });
+      await runNpmInstall(skillDir);
       this.log("info", `npm deps installed: ${slug}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.log("warn", `npm deps failed for ${slug}: ${message}`);
+      this.log("error", `npm deps failed for ${slug}: ${message}`);
+      throw new Error(`DEPS_INSTALL_FAILED: ${slug}: ${message}`);
     }
   }
 
@@ -735,14 +769,18 @@ export class CatalogManager {
 
   private parseFrontmatter(filePath: string): {
     name: string;
+    catalogName: string;
     description: string;
   } {
     try {
-      const content = readFileSync(filePath, "utf8");
+      const content = readFileSync(filePath, "utf8").replace(/\r\n/g, "\n");
       const match = content.match(/^---\n([\s\S]*?)\n---/);
-      if (!match?.[1]) return { name: "", description: "" };
+      if (!match?.[1]) return { name: "", catalogName: "", description: "" };
       const frontmatter = match[1];
       const nameMatch = frontmatter.match(/^name:\s*['"]?(.+?)['"]?\s*$/m);
+      const catalogNameMatch = frontmatter.match(
+        /^catalog-name:\s*['"]?(.+?)['"]?\s*$/m,
+      );
 
       // Match description: single line, or multiline block after | or >
       let description = "";
@@ -768,10 +806,11 @@ export class CatalogManager {
 
       return {
         name: nameMatch?.[1]?.trim() ?? "",
+        catalogName: catalogNameMatch?.[1]?.trim() ?? "",
         description,
       };
     } catch {
-      return { name: "", description: "" };
+      return { name: "", catalogName: "", description: "" };
     }
   }
 

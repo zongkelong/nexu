@@ -10,7 +10,7 @@
     "bundle-runtime-plugins": "node scripts/bundle-runtime-plugins.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run tests",
-    "generate-openapi": "NODE_OPTIONS=--conditions=development tsx scripts/generate-openapi.ts"
+    "generate-openapi": "node --conditions=development --import tsx scripts/generate-openapi.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
@@ -20,6 +20,7 @@
     "dotenv": "^16.6.1",
     "hono": "^4.7.5",
     "lowdb": "^7.0.1",
+    "pdf-parse": "^2.4.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {

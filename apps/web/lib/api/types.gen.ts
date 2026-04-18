@@ -423,10 +423,14 @@ export type GetApiInternalDesktopReadyResponses = {
      */
     200: {
         ready: boolean;
+        coreReady: boolean;
+        degraded: boolean;
+        bootPhase: 'preparing' | 'starting-managed-runtime' | 'attaching-external-runtime' | 'reconciling-runtime' | 'stabilizing-runtime' | 'ready';
         workspacePath: string;
-        runtime: {
+        controlPlane: {
             ok: boolean;
-            status: number;
+            phase: 'disconnected' | 'connecting' | 'ready' | 'degraded';
+            wsConnected: boolean;
         };
         status: 'active' | 'starting' | 'degraded' | 'unhealthy';
     };
@@ -1617,8 +1621,42 @@ export type PostApiV1ChannelsDingtalkConnectErrors = {
     /**
      * Invalid credentials
      */
-    409: {
+    422: {
         message: string;
+        code: 'already_connected' | 'app_id_mismatch' | 'invalid_credentials' | 'network_error' | 'proxy_error' | 'sync_failed' | 'timeout' | 'upstream_http_error';
+        requestId: string;
+        retryable: boolean;
+        phase: 'verify_credentials' | 'verify_app' | 'persist_config' | 'sync_runtime';
+    };
+    /**
+     * Upstream request failed
+     */
+    502: {
+        message: string;
+        code: 'already_connected' | 'app_id_mismatch' | 'invalid_credentials' | 'network_error' | 'proxy_error' | 'sync_failed' | 'timeout' | 'upstream_http_error';
+        requestId: string;
+        retryable: boolean;
+        phase: 'verify_credentials' | 'verify_app' | 'persist_config' | 'sync_runtime';
+    };
+    /**
+     * Local persistence or runtime sync failed
+     */
+    503: {
+        message: string;
+        code: 'already_connected' | 'app_id_mismatch' | 'invalid_credentials' | 'network_error' | 'proxy_error' | 'sync_failed' | 'timeout' | 'upstream_http_error';
+        requestId: string;
+        retryable: boolean;
+        phase: 'verify_credentials' | 'verify_app' | 'persist_config' | 'sync_runtime';
+    };
+    /**
+     * Upstream timeout
+     */
+    504: {
+        message: string;
+        code: 'already_connected' | 'app_id_mismatch' | 'invalid_credentials' | 'network_error' | 'proxy_error' | 'sync_failed' | 'timeout' | 'upstream_http_error';
+        requestId: string;
+        retryable: boolean;
+        phase: 'verify_credentials' | 'verify_app' | 'persist_config' | 'sync_runtime';
     };
 };
 
@@ -2185,6 +2223,135 @@ export type GetApiV1ChannelsByChannelIdReadinessResponses = {
 };
 
 export type GetApiV1ChannelsByChannelIdReadinessResponse = GetApiV1ChannelsByChannelIdReadinessResponses[keyof GetApiV1ChannelsByChannelIdReadinessResponses];
+
+export type GetApiV1ChatSessionData = {
+    body?: never;
+    path?: never;
+    query: {
+        botId: string;
+        sessionKey: string;
+    };
+    url: '/api/v1/chat/session';
+};
+
+export type GetApiV1ChatSessionResponses = {
+    /**
+     * Session resolved from sessionKey
+     */
+    200: {
+        session: {
+            id: string;
+            botId: string;
+            sessionKey: string;
+            channelType: string;
+            channelId: string;
+            title: string;
+            status: string;
+            messageCount: number;
+            lastMessageAt: string;
+            metadata: {
+                [key: string]: unknown;
+            };
+            createdAt: string;
+            updatedAt: string;
+        };
+    };
+};
+
+export type GetApiV1ChatSessionResponse = GetApiV1ChatSessionResponses[keyof GetApiV1ChatSessionResponses];
+
+export type PostApiV1ChatLocalData = {
+    body?: {
+        botId: string;
+        sessionKey: string;
+        message: {
+            type: 'text' | 'image' | 'video' | 'audio' | 'file';
+            content: string;
+            metadata?: {
+                width?: number;
+                height?: number;
+                duration?: number;
+                mimeType?: string;
+                filename?: string;
+                size?: number;
+            };
+            attachments?: Array<{
+                type: 'image' | 'file';
+                content: string;
+                metadata?: {
+                    mimeType?: string;
+                    filename?: string;
+                    size?: number;
+                };
+            }>;
+        };
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/chat/local';
+};
+
+export type PostApiV1ChatLocalResponses = {
+    /**
+     * Local chat message sent
+     */
+    200: {
+        session: {
+            id: string;
+            botId: string;
+            sessionKey: string;
+            channelType: string;
+            channelId: string;
+            title: string;
+            status: string;
+            messageCount: number;
+            lastMessageAt: string;
+            metadata: {
+                [key: string]: unknown;
+            };
+            createdAt: string;
+            updatedAt: string;
+        };
+        message: {
+            id: string;
+            role: string;
+            type: string;
+            content?: unknown;
+            timestamp: number;
+            createdAt: string;
+        };
+    };
+};
+
+export type PostApiV1ChatLocalResponse = PostApiV1ChatLocalResponses[keyof PostApiV1ChatLocalResponses];
+
+export type GetApiV1ChatHistoryData = {
+    body?: never;
+    path?: never;
+    query: {
+        botId: string;
+        limit?: number;
+    };
+    url: '/api/v1/chat/history';
+};
+
+export type GetApiV1ChatHistoryResponses = {
+    /**
+     * Full conversation history aggregated across all compacted sessions
+     */
+    200: {
+        messages: Array<{
+            id: string;
+            role: 'user' | 'assistant';
+            content?: unknown;
+            timestamp: number;
+            createdAt: string;
+        }>;
+        sessionCount: number;
+    };
+};
+
+export type GetApiV1ChatHistoryResponse = GetApiV1ChatHistoryResponses[keyof GetApiV1ChatHistoryResponses];
 
 export type PostApiInternalSessionsData = {
     body?: {
@@ -3529,7 +3696,7 @@ export type GetApiV1SkillhubCatalogResponses = {
             status: 'queued' | 'downloading' | 'installing-deps' | 'done' | 'failed';
             position: number;
             error: string;
-            errorCode: 'skill_not_found' | 'rate_limit' | 'unknown';
+            errorCode: 'skill_not_found' | 'rate_limit' | 'npm_missing' | 'deps_install_failed' | 'unknown';
             retries: number;
             enqueuedAt: string;
         }>;
@@ -3587,6 +3754,27 @@ export type PostApiV1SkillhubUninstallResponses = {
 };
 
 export type PostApiV1SkillhubUninstallResponse = PostApiV1SkillhubUninstallResponses[keyof PostApiV1SkillhubUninstallResponses];
+
+export type PostApiV1SkillhubCancelData = {
+    body?: {
+        slug: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/skillhub/cancel';
+};
+
+export type PostApiV1SkillhubCancelResponses = {
+    /**
+     * Cancel or dismiss a queued / failed install
+     */
+    200: {
+        ok: boolean;
+        cancelled: boolean;
+    };
+};
+
+export type PostApiV1SkillhubCancelResponse = PostApiV1SkillhubCancelResponses[keyof PostApiV1SkillhubCancelResponses];
 
 export type PostApiV1SkillhubRefreshData = {
     body?: never;
@@ -3666,11 +3854,13 @@ export type PostApiV1SkillhubImportData = {
 
 export type PostApiV1SkillhubImportErrors = {
     /**
-     * Bad request
+     * Import rejected or failed
      */
     400: {
-        ok: false;
-        error: string;
+        ok: boolean;
+        slug?: string;
+        error?: string;
+        errorCode?: 'skill_not_found' | 'rate_limit' | 'npm_missing' | 'deps_install_failed' | 'unknown';
     };
 };
 
@@ -3684,6 +3874,7 @@ export type PostApiV1SkillhubImportResponses = {
         ok: boolean;
         slug?: string;
         error?: string;
+        errorCode?: 'skill_not_found' | 'rate_limit' | 'npm_missing' | 'deps_install_failed' | 'unknown';
     };
 };
 

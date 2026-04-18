@@ -43,7 +43,15 @@ const queueItemSchema = z.object({
   ]),
   position: z.number(),
   error: z.string().nullable(),
-  errorCode: z.enum(["skill_not_found", "rate_limit", "unknown"]).nullable(),
+  errorCode: z
+    .enum([
+      "skill_not_found",
+      "rate_limit",
+      "npm_missing",
+      "deps_install_failed",
+      "unknown",
+    ])
+    .nullable(),
   retries: z.number(),
   enqueuedAt: z.string(),
 });
@@ -115,6 +123,15 @@ const skillhubImportResultSchema = z.object({
   ok: z.boolean(),
   slug: z.string().optional(),
   error: z.string().optional(),
+  errorCode: z
+    .enum([
+      "skill_not_found",
+      "rate_limit",
+      "npm_missing",
+      "deps_install_failed",
+      "unknown",
+    ])
+    .optional(),
 });
 
 export function registerSkillhubRoutes(
@@ -230,6 +247,42 @@ export function registerSkillhubRoutes(
         await container.openclawSyncService.syncAll();
       }
       return c.json(result, 200);
+    },
+  );
+
+  // POST /api/v1/skillhub/cancel
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/api/v1/skillhub/cancel",
+      tags: ["SkillHub"],
+      request: {
+        body: {
+          content: {
+            "application/json": {
+              schema: z.object({ slug: skillhubSlugSchema }),
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                ok: z.boolean(),
+                cancelled: z.boolean(),
+              }),
+            },
+          },
+          description: "Cancel or dismiss a queued / failed install",
+        },
+      },
+    }),
+    async (c) => {
+      const { slug } = c.req.valid("json");
+      const cancelled = container.skillhubService.cancelInstall(slug);
+      return c.json({ ok: true, cancelled }, 200);
     },
   );
 
@@ -380,14 +433,9 @@ export function registerSkillhubRoutes(
         },
         400: {
           content: {
-            "application/json": {
-              schema: z.object({
-                ok: z.literal(false),
-                error: z.string(),
-              }),
-            },
+            "application/json": { schema: skillhubImportResultSchema },
           },
-          description: "Bad request",
+          description: "Import rejected or failed",
         },
       },
     }),
@@ -422,10 +470,14 @@ export function registerSkillhubRoutes(
       const result =
         await container.skillhubService.catalog.importSkillZip(buffer);
 
-      if (result.ok) {
-        await container.openclawSyncService.syncAll();
+      if (!result.ok) {
+        // Dependency-install failures, path-safety violations, etc.
+        // Structured payload (error + errorCode) lets the UI render
+        // retryable vs unrecoverable states without a generic 500.
+        return c.json(result, 400);
       }
 
+      await container.openclawSyncService.syncAll();
       return c.json(result, 200);
     },
   );

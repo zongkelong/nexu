@@ -122,6 +122,7 @@ const zhCN = {
   "layout.nav.deployments": "部署",
   "layout.nav.skills": "技能",
   "layout.nav.settings": "设置",
+  "layout.nav.localChat": "对话",
   "layout.conversations": "对话",
   "layout.signOut": "退出登录",
   "layout.help.title": "帮助",
@@ -424,6 +425,9 @@ const zhCN = {
   "settings.general.loggedOut": "未登录",
   "settings.general.loggedOutHint": "登录后可同步设置并使用高级模型",
   "settings.general.goLogin": "去登录",
+  "settings.general.logoutConfirmTitle": "确认退出当前 nexu 账号？",
+  "settings.general.logoutConfirmDescription":
+    "退出后，当前桌面工作区将断开与你的 nexu 账号连接。",
   "settings.general.preferences": "偏好",
   "settings.general.language": "语言",
   "settings.general.languageHint": "选择界面显示语言",
@@ -549,6 +553,9 @@ const zhCN = {
     "登录 nexu 账号后，即可无限使用 Claude Opus 4.6、GPT-5.4 等高级模型，无需 API Key。",
   "models.managed.waitingLogin": "等待浏览器登录...",
   "models.managed.loginButton": "登录 nexu 账号",
+  "models.managed.logoutConfirmTitle": "确认退出 nexu Official？",
+  "models.managed.logoutConfirmDescription":
+    "退出后，此设备上的 nexu Official 将断开当前 nexu 账号连接。",
   "models.managed.availableModels": "可用模型",
   "models.managed.refreshSucceeded": "模型已刷新",
   "models.managed.refreshFailed": "刷新模型失败",
@@ -713,6 +720,21 @@ const zhCN = {
   "skills.installQueued": "技能已加入安装队列",
   "skills.skillNotFound":
     '"{{slug}}" 在 ClawHub 上不可用，可能已被移除或重命名。',
+  "skills.skillNotAvailable":
+    "该技能在 ClawHub 上不可用，可能已被移除或重命名。",
+  "skills.installRateLimited": "ClawHub 正在限流，请稍后重试。",
+  "skills.installFailedGeneric": "安装失败，请稍后重试。",
+  "skills.retryInstall": "重试",
+  "skills.cancelInstall": "取消",
+  "skills.cancelling": "取消中…",
+  "skills.cancelFailed": "取消失败：{{error}}",
+  "skills.installNpmMissing":
+    "安装该技能需要 npm。请先从 https://nodejs.org/ 安装 Node.js 并重启 Nexu。",
+  "skills.installDepsFailed":
+    '"{{slug}}" 的依赖安装失败，请查看控制器日志了解详情。',
+  "skills.installFailed": '"{{slug}}" 安装失败：{{error}}',
+  "skills.installRequestFailed": "无法启动安装：{{error}}",
+  "skills.uninstallRequestFailed": "无法卸载该技能：{{error}}",
   "skills.import": "导入",
   "skills.importSkill": "导入技能",
   "skills.importSkillDesc": "从 zip 文件或 GitHub 仓库添加自定义技能",
@@ -1008,6 +1030,22 @@ const zhCN = {
 
   // ── WhatsApp Setup ──
   "whatsappSetup.title": "连接 WhatsApp",
+  "whatsappSetup.personalTitle": "连接个人 WhatsApp",
+  "whatsappSetup.desc":
+    "用手机扫描一次即可绑定 WhatsApp Web。私聊会保持开启；在群聊中提到该账号时，也会默认启用回复。",
+  "whatsappSetup.qrAlt": "WhatsApp 二维码",
+  "whatsappSetup.waitingForScan": "等待扫描 WhatsApp 二维码",
+  "whatsappSetup.scanHint":
+    "在手机上打开 WhatsApp，进入“关联设备”后扫描此二维码。",
+  "whatsappSetup.preparingQr": "正在准备 WhatsApp 二维码",
+  "whatsappSetup.finishingConnection": "正在完成 WhatsApp 连接",
+  "whatsappSetup.retry": "重试",
+  "whatsappSetup.scanQr": "扫描 WhatsApp 二维码",
+  "whatsappSetup.connectSuccess": "WhatsApp 已连接",
+  "whatsappSetup.connectFailed": "WhatsApp 连接失败",
+  "whatsappSetup.startFailed": "启动 WhatsApp 登录失败",
+  "whatsappSetup.loadQrFailed": "加载 WhatsApp 二维码失败",
+  "whatsappSetup.waitFailed": "WhatsApp 登录超时",
 
   // ── QQ Setup ──
   "qqbotSetup.title": "连接 QQ",
@@ -1168,6 +1206,24 @@ const zhCN = {
   "common.loading": "加载中...",
   "common.connect": "连接",
   "common.disconnect": "断开连接",
+
+  // ── Local Chat ──
+  "localChat.title": "本地对话",
+  "localChat.subtitle": "直接与你的 AI 机器人对话",
+  "localChat.selectBot": "选择机器人",
+  "localChat.noBots": "暂无可用机器人",
+  "localChat.selectBotFirst": "请先在上方选择机器人",
+  "localChat.waiting": "等待回复中…",
+  "localChat.inputPlaceholder": "输入消息… （Enter 发送，Shift+Enter 换行）",
+  "localChat.attachFile": "附加图片或文件",
+  "localChat.removeAttachment": "移除",
+  "localChat.startChat": "与 {{name}} 对话",
+  "localChat.pickBot": "选择一个机器人开始",
+  "localChat.emptyHint": "选择机器人后，在下方输入消息",
+  "localChat.selectChannel": "频道",
+  "localChat.channel.webchat": "WebChat",
+  "localChat.channel.feishu": "飞书",
+  "localChat.channel.wechat": "微信",
 } as const;
 
 export default zhCN;

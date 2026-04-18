@@ -125,6 +125,7 @@ const en = {
   "layout.nav.deployments": "Deployments",
   "layout.nav.skills": "Skills",
   "layout.nav.settings": "Settings",
+  "layout.nav.localChat": "Chat",
   "layout.conversations": "Conversations",
   "layout.signOut": "Sign out",
   "layout.help.title": "Help",
@@ -448,6 +449,9 @@ const en = {
   "settings.general.loggedOutHint":
     "Sign in to sync settings and use premium models.",
   "settings.general.goLogin": "Go to sign in",
+  "settings.general.logoutConfirmTitle": "Log out of your nexu account?",
+  "settings.general.logoutConfirmDescription":
+    "This will disconnect your current nexu account from this desktop workspace.",
   "settings.general.preferences": "Preferences",
   "settings.general.language": "Language",
   "settings.general.languageHint": "Choose your interface language",
@@ -582,6 +586,9 @@ const en = {
     "Sign in with your nexu account to access unlimited premium models like Claude Opus 4.6, GPT-5.4, and more — no API key needed.",
   "models.managed.waitingLogin": "Waiting for browser login...",
   "models.managed.loginButton": "Sign in to nexu",
+  "models.managed.logoutConfirmTitle": "Log out of nexu Official?",
+  "models.managed.logoutConfirmDescription":
+    "This will disconnect nexu Official from your current nexu account on this device.",
   "models.managed.availableModels": "Available models",
   "models.managed.refreshSucceeded": "Models refreshed",
   "models.managed.refreshFailed": "Could not refresh models",
@@ -755,6 +762,23 @@ const en = {
   "skills.installQueued": "Skill queued for installation",
   "skills.skillNotFound":
     '"{{slug}}" is not available on ClawHub. It may have been removed or renamed.',
+  "skills.skillNotAvailable":
+    "This skill is not available on ClawHub. It may have been removed or renamed.",
+  "skills.installRateLimited":
+    "ClawHub is rate-limiting requests. Please wait a moment and retry.",
+  "skills.installFailedGeneric":
+    "Installation failed. Please retry in a moment.",
+  "skills.retryInstall": "Retry",
+  "skills.cancelInstall": "Cancel",
+  "skills.cancelling": "Cancelling…",
+  "skills.cancelFailed": "Failed to cancel: {{error}}",
+  "skills.installNpmMissing":
+    "npm is required to install this skill. Please install Node.js from https://nodejs.org/ and restart Nexu.",
+  "skills.installDepsFailed":
+    'Failed to install dependencies for "{{slug}}". Check the controller logs for details.',
+  "skills.installFailed": 'Failed to install "{{slug}}": {{error}}',
+  "skills.installRequestFailed": "Could not start the install: {{error}}",
+  "skills.uninstallRequestFailed": "Could not uninstall the skill: {{error}}",
   "skills.import": "Import",
   "skills.importSkill": "Import Skill",
   "skills.importSkillDesc":
@@ -1066,6 +1090,22 @@ const en = {
 
   // ── WhatsApp Setup ──
   "whatsappSetup.title": "Connect WhatsApp",
+  "whatsappSetup.personalTitle": "Connect Personal WhatsApp",
+  "whatsappSetup.desc":
+    "Scan once with your phone to link WhatsApp Web. Direct messages stay open, and group replies are enabled by default when the account is mentioned.",
+  "whatsappSetup.qrAlt": "WhatsApp QR code",
+  "whatsappSetup.waitingForScan": "Waiting for WhatsApp scan",
+  "whatsappSetup.scanHint":
+    "Open WhatsApp on your phone, then go to Linked Devices and scan this QR code.",
+  "whatsappSetup.preparingQr": "Preparing WhatsApp QR code",
+  "whatsappSetup.finishingConnection": "Finishing WhatsApp connection",
+  "whatsappSetup.retry": "Retry",
+  "whatsappSetup.scanQr": "Scan WhatsApp QR",
+  "whatsappSetup.connectSuccess": "WhatsApp connected",
+  "whatsappSetup.connectFailed": "WhatsApp connect failed",
+  "whatsappSetup.startFailed": "Failed to start WhatsApp login",
+  "whatsappSetup.loadQrFailed": "Failed to load WhatsApp QR code",
+  "whatsappSetup.waitFailed": "WhatsApp login timed out",
 
   // ── QQ Setup ──
   "qqbotSetup.title": "Connect QQ",
@@ -1236,6 +1276,25 @@ const en = {
   "common.loading": "Loading...",
   "common.connect": "Connect",
   "common.disconnect": "Disconnect",
+
+  // ── Local Chat ──
+  "localChat.title": "Local Chat",
+  "localChat.subtitle": "Chat directly with your AI bot",
+  "localChat.selectBot": "Select a bot",
+  "localChat.noBots": "No active bots yet",
+  "localChat.selectBotFirst": "Select a bot above to start chatting",
+  "localChat.waiting": "Waiting for reply…",
+  "localChat.inputPlaceholder":
+    "Type a message… (Enter to send, Shift+Enter for newline)",
+  "localChat.attachFile": "Attach image or file",
+  "localChat.removeAttachment": "Remove",
+  "localChat.startChat": "Chat with {{name}}",
+  "localChat.pickBot": "Pick a bot to get started",
+  "localChat.emptyHint": "Select a bot, then type a message below",
+  "localChat.selectChannel": "Channel",
+  "localChat.channel.webchat": "WebChat",
+  "localChat.channel.feishu": "Feishu",
+  "localChat.channel.wechat": "WeChat",
 } as const;
 
 export default en;

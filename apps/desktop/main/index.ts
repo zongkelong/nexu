@@ -111,6 +111,14 @@ if (!hasSingleInstanceLock) {
 // so users see it immediately on first launch.
 void app.dock?.show();
 
+// In dev mode the raw Electron binary is used (no .app bundle), so macOS
+// falls back to the default Electron atom icon.  Set the custom icon explicitly
+// so the Dock shows the correct Nexu icon during local development.
+if (!app.isPackaged && app.dock) {
+  const devIcon = resolve(getDesktopAppRoot(), "build", "icon.png");
+  app.dock.setIcon(devIcon);
+}
+
 const electronRoot = app.isPackaged
   ? process.resourcesPath
   : getDesktopAppRoot();
@@ -121,28 +129,30 @@ const baseRuntimeConfig = getDesktopRuntimeConfig(process.env, {
 });
 const runtimePlatformAdapter =
   getDesktopRuntimePlatformAdapter(baseRuntimeConfig);
+const useExternalRuntime = baseRuntimeConfig.runtimeMode === "external";
 // In launchd mode, skip port probing — the bootstrap has its own port
 // recovery via runtime-ports.json and handles leftover processes gracefully.
 // Probing here would waste time and the results get overridden by attach anyway.
-const useLaunchdMode = isLaunchdBootstrapEnabled();
+const useLaunchdMode = !useExternalRuntime && isLaunchdBootstrapEnabled();
 const runtimeLifecycle = runtimePlatformAdapter.lifecycle;
-const { allocations: runtimePortAllocations, runtimeConfig } = useLaunchdMode
-  ? {
-      allocations: [] as PortAllocation[],
-      runtimeConfig: baseRuntimeConfig,
-    }
-  : await allocateDesktopRuntimePorts(process.env, baseRuntimeConfig).catch(
-      (error: unknown) => {
-        if (error instanceof PortAllocationError) {
-          throw new Error(
-            `[desktop:ports] ${error.code} purpose=${error.purpose} ` +
-              `preferredPort=${error.preferredPort ?? "n/a"} ${error.message}`,
-          );
-        }
+const { allocations: runtimePortAllocations, runtimeConfig } =
+  useLaunchdMode || useExternalRuntime
+    ? {
+        allocations: [] as PortAllocation[],
+        runtimeConfig: baseRuntimeConfig,
+      }
+    : await allocateDesktopRuntimePorts(process.env, baseRuntimeConfig).catch(
+        (error: unknown) => {
+          if (error instanceof PortAllocationError) {
+            throw new Error(
+              `[desktop:ports] ${error.code} purpose=${error.purpose} ` +
+                `preferredPort=${error.preferredPort ?? "n/a"} ${error.message}`,
+            );
+          }
 
-        throw error;
-      },
-    );
+          throw error;
+        },
+      );
 
 const pendingUserDataMigration =
   app.isPackaged && process.platform === "win32"
@@ -1760,11 +1770,36 @@ app.whenReady().then(async () => {
       }
 
       logColdStart(
-        `bootstrap mode: ${useLaunchdMode ? "launchd" : "orchestrator"}`,
+        `bootstrap mode: ${useExternalRuntime ? "external" : useLaunchdMode ? "launchd" : "orchestrator"}`,
       );
 
-      if (useLaunchdMode) {
+      if (useExternalRuntime) {
+        await runtimeLifecycle.coldStartOrAttach({
+          app,
+          electronRoot,
+          runtimeConfig,
+          orchestrator,
+          diagnosticsReporter,
+          logColdStart,
+          logStartupStep: logLaunchTimeline,
+          rotateDesktopLogSession,
+          waitForControllerReadiness,
+        });
+      } else if (useLaunchdMode) {
         await runLaunchdColdStart();
+      } else if (baseRuntimeConfig.runtimeMode === "external") {
+        // External mode: pnpm dev services (controller, web, openclaw) are
+        // already running; just wait for controller to be ready and attach.
+        diagnosticsReporter?.markColdStartRunning(
+          "attaching to external runtime",
+        );
+        logColdStart("attaching to external runtime");
+        logColdStart("waiting for external controller readiness");
+        await waitForControllerReadiness();
+        const sessionId = rotateDesktopLogSession();
+        logColdStart(`cold start session ready sessionId=${sessionId}`);
+        logColdStart("cold start complete");
+        diagnosticsReporter?.markColdStartSucceeded();
       } else {
         await runDesktopColdStart();
       }

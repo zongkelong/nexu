@@ -120,9 +120,15 @@ function compileModelsConfig(
       continue;
     }
 
+    // Keep apiKey when it's a non-empty string or a secret-ref object; only
+    // drop it when null/undefined or an empty string. Emitting apiKey:""
+    // caused OpenClaw to reject the provider (and caused relogin to fail
+    // with "Unknown model: link/...").
+    const hasUsableApiKey =
+      apiKey !== null && !(typeof apiKey === "string" && apiKey.length === 0);
     providers[descriptor.runtimeKey] = {
       baseUrl: descriptor.provider.baseUrl,
-      apiKey: apiKey ?? "",
+      ...(hasUsableApiKey ? { apiKey } : {}),
       api: descriptor.apiKind,
       ...(descriptor.authHeader ? { authHeader: true } : {}),
       ...(descriptor.defaultHeaders
@@ -289,7 +295,10 @@ function compilePlugins(
     "nexu-runtime-model",
     "nexu-credit-guard",
     "nexu-platform-bootstrap",
-    ...(analyticsEnabled ? ["langfuse-tracer"] : []),
+    // Always allow langfuse-tracer so analytics preference changes only
+    // toggle its `enabled` flag (hot-reload) instead of mutating
+    // plugins.allow which triggers a full gateway restart (~11s).
+    "langfuse-tracer",
     ...(resolvedMiniMaxOauth ? ["minimax-portal-auth"] : []),
   ];
 
@@ -341,13 +350,9 @@ function compilePlugins(
       "nexu-runtime-model": {
         enabled: true,
       },
-      ...(analyticsEnabled
-        ? {
-            "langfuse-tracer": {
-              enabled: true,
-            },
-          }
-        : {}),
+      "langfuse-tracer": {
+        enabled: analyticsEnabled,
+      },
       "nexu-credit-guard": {
         enabled: true,
         config: {
@@ -410,6 +415,13 @@ export function compileOpenClawConfig(
       controlUi: {
         allowedOrigins: [env.webUrl],
         dangerouslyAllowHostHeaderOriginFallback: true,
+      },
+      http: {
+        endpoints: {
+          chatCompletions: {
+            enabled: true,
+          },
+        },
       },
       tools: {
         allow: ["cron"],
@@ -503,7 +515,8 @@ export function compileOpenClawConfig(
     channels: compileChannelsConfig({
       channels: config.channels,
       secrets: config.secrets,
-      controllerBaseUrl: `http://127.0.0.1:${env.port}`,
+      gatewayBaseUrl: `http://127.0.0.1:${env.openclawGatewayPort}`,
+      gatewayToken: env.openclawGatewayToken,
     }),
     bindings: compileChannelBindings(config.bots, config.channels),
     plugins: compilePlugins(config, env),

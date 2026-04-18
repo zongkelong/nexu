@@ -9,12 +9,11 @@
  * - Single-channel readiness check
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { OpenClawConfig } from "@nexu/shared";
 import { logger } from "../lib/logger.js";
 import { serializeOpenClawConfig } from "../lib/openclaw-config-serialization.js";
 import type { OpenClawWsClient } from "../runtime/openclaw-ws-client.js";
-import type { ControllerRuntimeState } from "../runtime/state.js";
 
 // ---------------------------------------------------------------------------
 // Public types — channel status & readiness
@@ -145,10 +144,7 @@ export class OpenClawGatewayService {
   /** SHA-256 hash of the last config we successfully observed. */
   private lastPushedConfigHash: string | null = null;
 
-  constructor(
-    private readonly wsClient: OpenClawWsClient,
-    private readonly runtimeState: ControllerRuntimeState,
-  ) {}
+  constructor(private readonly wsClient: OpenClawWsClient) {}
 
   /** Whether the WS client has completed handshake and is ready for RPC. */
   isConnected(): boolean {
@@ -176,6 +172,41 @@ export class OpenClawGatewayService {
 
   noteConfigWritten(config: OpenClawConfig): void {
     this.lastPushedConfigHash = this.configHash(config);
+  }
+
+  async getGatewayHealthSnapshot(opts?: {
+    timeoutMs?: number;
+    probe?: boolean;
+  }): Promise<unknown> {
+    return this.wsClient.request(
+      "health",
+      {
+        probe: opts?.probe ?? false,
+      },
+      {
+        timeoutMs: opts?.timeoutMs ?? 1000,
+      },
+    );
+  }
+
+  async getGatewayStatusSummary(opts?: {
+    timeoutMs?: number;
+  }): Promise<unknown> {
+    return this.wsClient.request("status", undefined, {
+      timeoutMs: opts?.timeoutMs ?? 1000,
+    });
+  }
+
+  async getGatewayConfigSnapshot(opts?: {
+    timeoutMs?: number;
+  }): Promise<unknown> {
+    return this.wsClient.request(
+      "config.get",
+      {},
+      {
+        timeoutMs: opts?.timeoutMs ?? 1000,
+      },
+    );
   }
 
   /**
@@ -259,6 +290,141 @@ export class OpenClawGatewayService {
     }
   }
 
+  /**
+   * Send a message to an agent's main session via the `chat.send` RPC.
+   *
+   * `send` is for outbound bot→user delivery; `chat.send` is the right RPC
+   * for injecting a user message into an agent session directly (no channel).
+   * Required by OpenClaw schema: sessionKey + message + idempotencyKey.
+   * Images/files are passed via the `attachments` array.
+   *
+   * Multipart support: when `attachments` is provided the caller controls the
+   * full attachments list and the `message` field carries the text portion.
+   * When only `messageType === "image"` is set (legacy single-image path),
+   * the image data is in `message` and is moved to attachments automatically.
+   */
+  /**
+   * Strip a DataURL header (`data:<mime>;base64,`) and return only the raw
+   * base64 payload.  OpenClaw's attachment `content` field expects plain
+   * base64, not a full DataURL.  Strings that are already plain base64 are
+   * returned unchanged.
+   */
+  private static stripDataUrlPrefix(dataOrBase64: string): string {
+    const commaIdx = dataOrBase64.indexOf(",");
+    // DataURLs contain exactly one comma after the header; plain base64 may
+    // also contain commas in rare edge cases, but only DataURLs start with
+    // "data:" and have a semicolon before the comma.
+    if (
+      commaIdx !== -1 &&
+      dataOrBase64.startsWith("data:") &&
+      dataOrBase64.includes(";base64,")
+    ) {
+      return dataOrBase64.slice(commaIdx + 1);
+    }
+    return dataOrBase64;
+  }
+
+  /**
+   * Extract the MIME type from a DataURL header (`data:<mime>;base64,...`).
+   * Returns the provided fallback when the input is not a DataURL.
+   */
+  private static mimeFromDataUrl(
+    dataOrBase64: string,
+    fallback: string | undefined,
+  ): string | undefined {
+    if (dataOrBase64.startsWith("data:") && dataOrBase64.includes(";base64,")) {
+      const semicolon = dataOrBase64.indexOf(";");
+      return dataOrBase64.slice(5, semicolon); // "data:" is 5 chars
+    }
+    return fallback;
+  }
+
+  async sendToMainSession(input: {
+    botId: string;
+    sessionKey: string;
+    message: string;
+    messageType?: "text" | "image" | "video" | "audio" | "file";
+    metadata?: Record<string, unknown>;
+    /**
+     * Pre-built image attachments for multipart messages.
+     * Non-image files are not passed here — they are folded into `message`
+     * as text by the caller (mirrors extractFileContentFromSource pattern).
+     */
+    attachments?: Array<{
+      type: "image";
+      data: string;
+      mimeType?: string;
+      filename?: string;
+    }>;
+  }): Promise<{ messageId?: string; content?: unknown }> {
+    const idempotencyKey = randomUUID();
+
+    // Normalise caller attachments to a plain array (never undefined here).
+    const callerAttachments = input.attachments ?? [];
+
+    // Legacy single-image path: image data lives in message field (no attachments list).
+    const isLegacyImage =
+      input.messageType === "image" && callerAttachments.length === 0;
+
+    // Build the RPC attachments array.
+    // OpenClaw's normalizeRpcAttachmentsToChatAttachments expects:
+    //   - `content` (string base64 or ArrayBuffer) — NOT `data`
+    //   - `fileName` (camelCase) — NOT `filename`
+    //   - `mimeType`
+    // Attachments whose `content` is falsy are silently filtered out by
+    // OpenClaw, so using the wrong field name causes silent data loss.
+    //
+    // We also strip any DataURL header (`data:<mime>;base64,`) that the
+    // frontend may have included — OpenClaw expects plain base64.
+    let rpcAttachments: Array<Record<string, unknown>> | undefined;
+    if (isLegacyImage) {
+      const rawContent = OpenClawGatewayService.stripDataUrlPrefix(
+        input.message,
+      );
+      const mimeType =
+        OpenClawGatewayService.mimeFromDataUrl(
+          input.message,
+          input.metadata?.mimeType as string | undefined,
+        ) ?? (input.metadata?.mimeType as string | undefined);
+      rpcAttachments = [
+        {
+          type: "image",
+          content: rawContent,
+          ...(mimeType ? { mimeType } : {}),
+        },
+      ];
+    } else if (callerAttachments.length > 0) {
+      rpcAttachments = callerAttachments.map((a) => {
+        const rawContent = OpenClawGatewayService.stripDataUrlPrefix(a.data);
+        const mimeType =
+          OpenClawGatewayService.mimeFromDataUrl(a.data, a.mimeType) ??
+          a.mimeType;
+        return {
+          type: a.type,
+          content: rawContent,
+          ...(mimeType ? { mimeType } : {}),
+          ...(a.filename ? { fileName: a.filename } : {}),
+        };
+      });
+    }
+
+    // Text field: empty for legacy image-only, otherwise pass through.
+    const rpcMessage = isLegacyImage ? "" : input.message;
+
+    return this.wsClient.request(
+      "chat.send",
+      {
+        sessionKey: input.sessionKey,
+        message: rpcMessage,
+        ...(rpcAttachments ? { attachments: rpcAttachments } : {}),
+        idempotencyKey,
+      },
+      // Give the agent up to 120 s to reply; the WS frame timeout is a bit
+      // longer so the RPC itself doesn't time out before OpenClaw does.
+      { timeoutMs: 130_000 },
+    );
+  }
+
   async logoutChannelAccount(
     channelType: string,
     accountId?: string,
@@ -289,24 +455,22 @@ export class OpenClawGatewayService {
     channels: ChannelLiveStatusEntry[];
   }> {
     if (!this.wsClient.isConnected()) {
-      // During boot or when gateway is still starting, show "connecting"
-      // instead of "disconnected" so the UI doesn't flash a scary red state.
-      const startupStatus: ChannelLiveStatus =
-        this.runtimeState.bootPhase === "booting" ||
-        this.runtimeState.gatewayStatus === "starting"
-          ? "connecting"
-          : "disconnected";
+      // WS is not connected: we cannot observe live channel status. Report
+      // "connecting" regardless of boot phase so the UI surfaces a neutral
+      // gateway-offline state instead of a per-channel credential failure,
+      // and preserve configured: true for channels with persisted credentials
+      // so the UI does not render the "not configured" reconnect prompt.
       return {
         gatewayConnected: false,
         channels: channels.map((channel) => ({
           channelType: channel.channelType,
           channelId: channel.id,
           accountId: channel.accountId,
-          status: startupStatus,
+          status: "connecting",
           ready: false,
           connected: false,
           running: false,
-          configured: false,
+          configured: true,
           lastError: null,
         })),
       };
@@ -454,17 +618,21 @@ export class OpenClawGatewayService {
         { error: err instanceof Error ? err.message : String(err) },
         "openclaw_channels_live_status_error",
       );
+      // Gateway RPC failed mid-flight — treat as a transient gateway outage.
+      // Report "connecting" + configured: true so the UI shows the
+      // gateway-offline banner instead of prompting users to re-authenticate
+      // channels whose credentials on disk are still valid.
       return {
         gatewayConnected: false,
         channels: channels.map((channel) => ({
           channelType: channel.channelType,
           channelId: channel.id,
           accountId: channel.accountId,
-          status: "disconnected",
+          status: "connecting",
           ready: false,
           connected: false,
           running: false,
-          configured: false,
+          configured: true,
           lastError: null,
         })),
       };
