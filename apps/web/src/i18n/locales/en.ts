@@ -1295,6 +1295,9 @@ const en = {
   "localChat.channel.webchat": "WebChat",
   "localChat.channel.feishu": "Feishu",
   "localChat.channel.wechat": "WeChat",
+  "localChat.creatingDefaultBot": "Creating your bot…",
+  "localChat.createDefaultBotError": "Failed to create bot",
+  "localChat.retryCreateBot": "Retry",
 } as const;
 
 export default en;

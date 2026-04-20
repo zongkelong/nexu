@@ -1224,6 +1224,9 @@ const zhCN = {
   "localChat.channel.webchat": "WebChat",
   "localChat.channel.feishu": "飞书",
   "localChat.channel.wechat": "微信",
+  "localChat.creatingDefaultBot": "正在创建机器人…",
+  "localChat.createDefaultBotError": "创建机器人失败",
+  "localChat.retryCreateBot": "重试",
 } as const;
 
 export default zhCN;

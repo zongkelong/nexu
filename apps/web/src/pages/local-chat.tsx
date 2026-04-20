@@ -1,6 +1,6 @@
 import { ChatMarkdown } from "@/components/ui/chat-markdown";
 import { cn } from "@/lib/utils";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
   ChevronDown,
@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   getApiV1Bots,
+  getApiV1BotsDefault,
   getApiV1ChatHistory,
   getApiV1ChatSession,
   postApiV1ChatLocal,
@@ -834,7 +835,8 @@ export function LocalChatPage() {
 
   const [selectedBot, setSelectedBot] = useState<BotItem | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  // null = history not yet loaded, [] = loaded but empty, [...] = loaded with history
+  const [messages, setMessages] = useState<ChatMsg[] | null>(null);
   const [input, setInput] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<
     PendingAttachment[]
@@ -869,6 +871,42 @@ export function LocalChatPage() {
   const bots = (botsData?.bots ?? []) as BotItem[];
   const activeBots = bots.filter((b) => b.status === "active");
 
+  // Auto-create a default bot when none exist
+  const createDefaultBot = useMutation({
+    mutationFn: async () => {
+      const { data } = await getApiV1BotsDefault();
+      return data;
+    },
+    onSuccess: (newBot) => {
+      void queryClient.invalidateQueries({ queryKey: ["bots"] });
+      setSelectedBot(newBot as BotItem);
+    },
+  });
+
+  const noActiveBots = activeBots.length === 0;
+  const isCreatingBot = botsLoading || createDefaultBot.isPending;
+  // Only show "creating" copy when we are genuinely creating a new bot (not just loading)
+  const isCreatingNewBot = createDefaultBot.isPending;
+  const createError = createDefaultBot.error;
+  // True when still initializing — no bot selected yet (loading bots or creating new bot)
+  // OR bot selected but history not yet loaded.
+  // Used to avoid flashing the empty state before messages are ready.
+  const isInitializing =
+    (isCreatingBot && !selectedBot) ||
+    (selectedBot !== null && messages === null);
+
+  // Automatically create a default bot when none exist
+  useEffect(() => {
+    if (
+      noActiveBots &&
+      !botsLoading &&
+      !createDefaultBot.isPending &&
+      !createError
+    ) {
+      createDefaultBot.mutate();
+    }
+  }, [noActiveBots, botsLoading, createDefaultBot, createError]);
+
   // Auto-select when there's exactly one active bot
   useEffect(() => {
     if (activeBots.length === 1 && !selectedBot && activeBots[0]) {
@@ -886,7 +924,7 @@ export function LocalChatPage() {
   // Consuming it early would cause the history load scroll to use "smooth"
   // and scroll from top to bottom visibly.
   useEffect(() => {
-    if (messages.length === 0 && !waitingReply) return;
+    if (messages === null || (messages.length === 0 && !waitingReply)) return;
     const behavior = scrollInstantRef.current ? "instant" : "smooth";
     scrollInstantRef.current = false;
     endRef.current?.scrollIntoView({ behavior });
@@ -1018,7 +1056,7 @@ export function LocalChatPage() {
       scrollInstantRef.current = true;
       setSelectedBot(bot);
       setSessionId(null);
-      setMessages([]);
+      setMessages(null);
       setPendingAttachments([]);
       stopPolling();
     },
@@ -1079,7 +1117,7 @@ export function LocalChatPage() {
         timestamp: Date.now(),
         createdAt: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, optimisticMsg]);
+      setMessages((prev) => [...(prev ?? []), optimisticMsg]);
       setSending(true);
       // Show typing indicator straight away so the user knows the AI is working
       setWaitingReply(true);
@@ -1154,7 +1192,9 @@ export function LocalChatPage() {
       } catch {
         setSending(false);
         setWaitingReply(false);
-        setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
+        setMessages((prev) =>
+          (prev ?? []).filter((m) => m.id !== optimisticMsg.id),
+        );
       } finally {
         activeSendRef.current = false;
       }
@@ -1322,13 +1362,18 @@ export function LocalChatPage() {
     !!selectedBot &&
     !sending &&
     !waitingReply &&
+    !isCreatingBot &&
     (input.trim().length > 0 || pendingAttachments.length > 0);
 
-  const placeholder = !selectedBot
-    ? t("localChat.selectBotFirst")
-    : waitingReply
-      ? t("localChat.waiting")
-      : t("localChat.inputPlaceholder");
+  const placeholder = createError
+    ? t("localChat.createDefaultBotError")
+    : isCreatingBot
+      ? t("localChat.creatingDefaultBot")
+      : !selectedBot
+        ? t("localChat.selectBotFirst")
+        : waitingReply
+          ? t("localChat.waiting")
+          : t("localChat.inputPlaceholder");
 
   return (
     <div className="flex h-full flex-col">
@@ -1344,8 +1389,28 @@ export function LocalChatPage() {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {botsLoading ? (
-              <Loader2 size={16} className="animate-spin text-text-muted" />
+            {createError ? (
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] text-red-500">
+                  {t("localChat.createDefaultBotError")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => createDefaultBot.mutate()}
+                  className="text-[12px] text-accent underline"
+                >
+                  {t("localChat.retryCreateBot")}
+                </button>
+              </div>
+            ) : isCreatingBot ? (
+              <div className="flex items-center gap-2">
+                <Loader2 size={16} className="animate-spin text-text-muted" />
+                {isCreatingNewBot && (
+                  <span className="text-[12px] text-text-muted">
+                    {t("localChat.creatingDefaultBot")}
+                  </span>
+                )}
+              </div>
             ) : (
               <BotSelector
                 bots={bots}
@@ -1359,28 +1424,55 @@ export function LocalChatPage() {
 
       {/* Message list */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {messages.length === 0 && !waitingReply ? (
+        {isInitializing ? (
+          <div className="flex h-full items-center justify-center">
+            <Loader2 size={20} className="animate-spin text-text-muted" />
+          </div>
+        ) : (messages === null || messages.length === 0) && !waitingReply ? (
           <div className="flex h-full items-center justify-center">
             <div className="flex flex-col items-center gap-3 text-center">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-surface-3">
                 <Sparkles className="h-7 w-7 text-text-muted" />
               </div>
               <div>
-                <p className="text-[14px] font-medium text-text-primary">
-                  {selectedBot
-                    ? t("localChat.startChat", { name: selectedBot.name })
-                    : t("localChat.pickBot")}
-                </p>
-                <p className="mt-1 text-[12px] text-text-muted">
-                  {t("localChat.emptyHint")}
-                </p>
+                {createError ? (
+                  <>
+                    <p className="text-[14px] font-medium text-red-500">
+                      {t("localChat.createDefaultBotError")}
+                    </p>
+                    <p className="mt-1 text-[12px] text-text-muted">
+                      {t("localChat.retryCreateBot")}
+                    </p>
+                  </>
+                ) : isCreatingNewBot ? (
+                  <>
+                    <p className="text-[14px] font-medium text-text-primary">
+                      {t("localChat.creatingDefaultBot")}
+                    </p>
+                    <p className="mt-1 text-[12px] text-text-muted">
+                      {t("localChat.emptyHint")}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[14px] font-medium text-text-primary">
+                      {selectedBot
+                        ? t("localChat.startChat", { name: selectedBot.name })
+                        : t("localChat.pickBot")}
+                    </p>
+                    <p className="mt-1 text-[12px] text-text-muted">
+                      {t("localChat.emptyHint")}
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           </div>
         ) : (
           <div className="px-4 py-8 sm:px-6">
             <div className="mx-auto flex w-full max-w-[920px] flex-col gap-5">
-              {messages.map((msg) => (
+              {/* biome-ignore lint/style/noNonNullAssertion: messages is guaranteed non-null in this branch */}
+              {messages!.map((msg) => (
                 <ChatBubble key={msg.id} msg={msg} />
               ))}
               {waitingReply && <TypingIndicator />}
@@ -1411,7 +1503,7 @@ export function LocalChatPage() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={placeholder}
-                disabled={!selectedBot || waitingReply}
+                disabled={!selectedBot || waitingReply || isCreatingBot}
                 rows={1}
                 className="flex-1 resize-none bg-transparent text-[13px] text-text-primary placeholder-text-muted outline-none disabled:cursor-not-allowed"
                 style={{ maxHeight: "120px", overflowY: "auto" }}
@@ -1419,7 +1511,9 @@ export function LocalChatPage() {
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                disabled={!selectedBot || sending || waitingReply}
+                disabled={
+                  !selectedBot || sending || waitingReply || isCreatingBot
+                }
                 className="ml-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-2 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
                 title={t("localChat.attachFile")}
               >

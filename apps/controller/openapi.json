@@ -186,6 +186,90 @@
         }
       }
     },
+    "/api/v1/bots/default": {
+      "get": {
+        "tags": [
+          "Bots"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default bot (existing or newly created)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    },
+                    "poolId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "active",
+                        "paused",
+                        "deleted"
+                      ]
+                    },
+                    "modelId": {
+                      "type": "string"
+                    },
+                    "systemPrompt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "slug",
+                    "poolId",
+                    "status",
+                    "modelId",
+                    "systemPrompt",
+                    "createdAt",
+                    "updatedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to get or create default bot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/bots/{botId}": {
       "get": {
         "tags": [

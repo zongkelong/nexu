@@ -60,6 +60,43 @@ export type PostApiV1BotsResponses = {
 
 export type PostApiV1BotsResponse = PostApiV1BotsResponses[keyof PostApiV1BotsResponses];
 
+export type GetApiV1BotsDefaultData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/bots/default';
+};
+
+export type GetApiV1BotsDefaultErrors = {
+    /**
+     * Failed to get or create default bot
+     */
+    500: {
+        message: string;
+    };
+};
+
+export type GetApiV1BotsDefaultError = GetApiV1BotsDefaultErrors[keyof GetApiV1BotsDefaultErrors];
+
+export type GetApiV1BotsDefaultResponses = {
+    /**
+     * Default bot (existing or newly created)
+     */
+    200: {
+        id: string;
+        name: string;
+        slug: string;
+        poolId: string;
+        status: 'active' | 'paused' | 'deleted';
+        modelId: string;
+        systemPrompt: string;
+        createdAt: string;
+        updatedAt: string;
+    };
+};
+
+export type GetApiV1BotsDefaultResponse = GetApiV1BotsDefaultResponses[keyof GetApiV1BotsDefaultResponses];
+
 export type DeleteApiV1BotsByBotIdData = {
     body?: never;
     path: {
