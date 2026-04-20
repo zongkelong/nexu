@@ -1030,12 +1030,10 @@ export function LocalChatPage() {
 
         const msgs = ((histData as Record<string, unknown>)?.messages ??
           []) as ChatMsg[];
-        if (msgs.length > 0) {
-          setMessages(msgs);
-          assistantCountRef.current = msgs.filter(
-            (m) => m.role === "assistant",
-          ).length;
-        }
+        setMessages(msgs);
+        assistantCountRef.current = msgs.filter(
+          (m) => m.role === "assistant",
+        ).length;
 
         const { data: sessionData } = await getApiV1ChatSession({
           query: { botId, sessionKey: buildMainSessionKey(botId) },
