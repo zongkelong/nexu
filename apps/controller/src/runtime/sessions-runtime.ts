@@ -230,6 +230,7 @@ export class SessionsRuntime {
         // should not appear in the conversation list.
         const activeFileNames = new Set<string>();
         const subagentFileNames = new Set<string>();
+        const heartbeatFileNames = new Set<string>();
         for (const [indexKey, entry] of Object.entries(sessionsIndex)) {
           let fileName: string | null = null;
           if (
@@ -249,6 +250,13 @@ export class SessionsRuntime {
           activeFileNames.add(fileName);
           if (indexKey.includes(":subagent:")) {
             subagentFileNames.add(fileName);
+          }
+          // Skip heartbeat sessions — OpenClaw sends a "heartbeat" message
+          // to bootstrap a brand-new agent workspace; this is an internal
+          // mechanism, not a user conversation, and must not appear in the
+          // sidebar session list.
+          if (entry.origin?.provider === "heartbeat") {
+            heartbeatFileNames.add(fileName);
           }
         }
 
@@ -275,6 +283,11 @@ export class SessionsRuntime {
           // user-initiated conversations.  They must not appear in the
           // sidebar conversation list.
           if (subagentFileNames.has(file.name)) {
+            continue;
+          }
+          // Skip heartbeat sessions — OpenClaw's internal workspace bootstrap
+          // mechanism, not a real user conversation.
+          if (heartbeatFileNames.has(file.name)) {
             continue;
           }
 
